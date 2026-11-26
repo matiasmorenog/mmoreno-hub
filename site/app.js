@@ -212,7 +212,12 @@ function medCatalogRow(it) {
       type: 'button',
       class: 'ghost',
       onclick: () => patchMed(it.id, { activo: !it.activo }),
-    }, it.activo ? 'Desactivar' : 'Activar'));
+    }, it.activo ? 'Desactivar' : 'Activar'),
+    el('button', {
+      type: 'button',
+      class: 'ghost',
+      onclick: () => deleteMed(it.id, it.nombre),
+    }, 'Borrar'));
 }
 function renderMeds() {
   if (!meds) return;
@@ -253,6 +258,25 @@ async function patchMed(id, patch) {
     renderMeds();
     setSync('Guardado');
   } catch { setSync('No se pudo actualizar'); }
+}
+async function deleteMed(id, nombre) {
+  if (!confirm(`¿Borrar «${nombre || id}» del catálogo? Se pierden también las tomas registradas.`)) return;
+  setSync('Borrando…');
+  try {
+    const r = await fetch('/api/meds', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    if (meds) meds.items = meds.items.filter((m) => m.id !== id);
+    const p = medPending(); delete p[id]; LS.set('mb_med_pending', p);
+    const recent = LS.get('mb_med_recent', {}); delete recent[id]; LS.set('mb_med_recent', recent);
+    renderMeds();
+    setSync('Borrado');
+  } catch { setSync('No se pudo borrar'); }
 }
 $('#addMed').addEventListener('submit', async (e) => {
   e.preventDefault();
