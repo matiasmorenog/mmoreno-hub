@@ -37,13 +37,16 @@ a{color:var(--ac)}
 .tbl tr.done td{text-decoration:line-through}
 .score{font-weight:700}.score.hi{color:var(--ok)}.score.lo{color:var(--bad)}
 .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0 12px}
-.filters input,.filters select,.login input,.add-row input{font:inherit;padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--tx)}
+.filters input,.filters select,.login input,.add-row input,.add-row select{font:inherit;padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--tx)}
 .filters input{flex:1;min-width:200px}
 .add-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px}
-.add-row input{flex:1;min-width:140px}
-.add-row #pTitulo{flex:2;min-width:200px}
+.add-row input,.add-row select{flex:1;min-width:140px}
+.add-row #pTitulo,.add-row #mNombre{flex:2;min-width:200px}
 .add-row button{font:inherit;padding:7px 14px;border:0;border-radius:8px;background:var(--ac);color:#fff;cursor:pointer;white-space:nowrap}
 .add-row button:disabled{opacity:.6;cursor:wait}
+.ghost{font:inherit;padding:4px 10px;border:1px solid var(--bd);border-radius:8px;background:transparent;color:var(--mu);cursor:pointer;flex:none;align-self:center}
+.ghost:hover{color:var(--tx);border-color:var(--tx)}
+#medCatalog .body{flex:1}
 .login{max-width:340px;margin:60px auto;display:flex;flex-direction:column;gap:10px}
 .login button{font:inherit;padding:8px;border:0;border-radius:8px;background:var(--ac);color:#fff;cursor:pointer}
 .err{color:var(--bad)}

@@ -1,6 +1,6 @@
 # mmoreno-hub
 
-Personal hub for Matias Adrian Moreno Gallo. The first tool is a **daily job-search brief**: what needs attention today, drafts ready to send, new roles, and a tracker of applications already in motion. Later tools (a shopping list, a medication calendar, and others) will live here as more sections of the same app.
+Personal hub for Matias Adrian Moreno Gallo. Tools live as sections of the same app: a **daily job-search brief**, a **medication / supplement checklist**, and a tracker of applications already in motion. A shopping list and other tools may follow.
 
 The daily brief stays one section of the hub. It is not a separate product.
 
@@ -11,7 +11,7 @@ This repository is the source. Pushing it does not change that deployment. Brief
 ## Stack
 
 - Static UI: vanilla JavaScript, HTML, and CSS in `site/`
-- API: Vercel Functions in `site/api` (`brief`, `toggle`, `item`, `tracker`, `login`)
+- API: Vercel Functions in `site/api` (`brief`, `toggle`, `item`, `tracker`, `login`, `meds`, `med-dose`)
 - Database: Neon Postgres through `@neondatabase/serverless`
 - Runtime: Node.js 22
 
@@ -19,7 +19,7 @@ This repository is the source. Pushing it does not change that deployment. Brief
 
 ## Data model
 
-`schema.sql` creates the tables below. Apply it once to an empty database. Do not commit a connection string.
+`schema.sql` creates the tables below. Apply it once to an empty database (or re-run for additive `IF NOT EXISTS` / seed `ON CONFLICT DO NOTHING`). Do not commit a connection string.
 
 | Table | Role |
 | --- | --- |
@@ -29,8 +29,12 @@ This repository is the source. Pushing it does not change that deployment. Brief
 | `applications` | Job-search tracker: section, date, company, role, status, score, source, link, notes, and sort order. |
 | `seen` | Dedup keys (`clave`, type, company key, date, detail). |
 | `rutina_estado` | Named timestamps for routines. |
+| `medications` | Catalog of meds/supplements: `nombre`, optional `notas`, optional `momento` (`manana` / `mediodia` / `noche`), `activo`, `orden`. |
+| `medication_doses` | Per-day taken flag (`medication_id`, `fecha`, `tomado`, `tomado_en`). Primary key is idempotent for one dose row per med per calendar day. |
 
-Indexes: `items.done_at`, `applications.empresa_key`, `applications.fecha`.
+Indexes: `items.done_at`, `applications.empresa_key`, `applications.fecha`, `medications(activo, orden)`, `medication_doses.fecha`.
+
+“Today” for doses uses `America/Argentina/Buenos_Aires` (same TZ as the brief).
 
 ## Environment variables
 
@@ -61,7 +65,7 @@ cd site
 npx vercel dev
 ```
 
-Open the local URL. The **Brief** tab loads `GET /api/brief`. Under **Necesita tu atención**, the form posts to `POST /api/item` (creates an `items` row with `seccion = 'atencion'`). Checking an item posts a batch to `POST /api/toggle`. The **Tracker** tab loads `GET /api/tracker` on demand.
+Open the local URL. The **Brief** tab loads `GET /api/brief`. Under **Necesita tu atención**, the form posts to `POST /api/item` (creates an `items` row with `seccion = 'atencion'`). Checking an item posts a batch to `POST /api/toggle`. The **Medicación** tab loads `GET /api/meds` (catalog + today’s doses); checkboxes post to `POST /api/med-dose`; catalog create/update use `POST` / `PATCH /api/meds`. The **Tracker** tab loads `GET /api/tracker` on demand.
 
 Apply the schema yourself against the database you own, for example:
 
