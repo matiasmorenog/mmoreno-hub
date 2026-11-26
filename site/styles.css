@@ -41,12 +41,14 @@ a{color:var(--ac)}
 .filters input{flex:1;min-width:200px}
 .add-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 10px}
 .add-row input,.add-row select{flex:1;min-width:140px}
-.add-row #pTitulo,.add-row #mNombre{flex:2;min-width:200px}
+.add-row #pTitulo,.add-row #mNombre,.add-row #sNombre{flex:2;min-width:200px}
 .add-row button{font:inherit;padding:7px 14px;border:0;border-radius:8px;background:var(--ac);color:#fff;cursor:pointer;white-space:nowrap}
 .add-row button:disabled{opacity:.6;cursor:wait}
 .ghost{font:inherit;padding:4px 10px;border:1px solid var(--bd);border-radius:8px;background:transparent;color:var(--mu);cursor:pointer;flex:none;align-self:center}
 .ghost:hover{color:var(--tx);border-color:var(--tx)}
 #medCatalog .body{flex:1}
+.shop-bought-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px}
+.shop-bought-head h2{margin:0}
 .login{max-width:340px;margin:60px auto;display:flex;flex-direction:column;gap:10px}
 .login button{font:inherit;padding:8px;border:0;border-radius:8px;background:var(--ac);color:#fff;cursor:pointer}
 .err{color:var(--bad)}

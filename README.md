@@ -11,7 +11,7 @@ This repository is the source. Pushing it does not change that deployment. Brief
 ## Stack
 
 - Static UI: vanilla JavaScript, HTML, and CSS in `site/`
-- API: Vercel Functions in `site/api` (`brief`, `toggle`, `item`, `tracker`, `login`, `meds`, `med-dose`)
+- API: Vercel Functions in `site/api` (`brief`, `toggle`, `item`, `tracker`, `login`, `meds`, `med-dose`, `shopping`)
 - Database: Neon Postgres through `@neondatabase/serverless`
 - Runtime: Node.js 22
 
@@ -31,6 +31,7 @@ This repository is the source. Pushing it does not change that deployment. Brief
 | `rutina_estado` | Named timestamps for routines. |
 | `medications` | Catalog of meds/supplements: `nombre`, optional `notas`, optional `momento` (`manana` / `mediodia` / `noche`), `activo`, `orden`. |
 | `medication_doses` | Per-day taken flag (`medication_id`, `fecha`, `tomado`, `tomado_en`). Primary key is idempotent for one dose row per med per calendar day. |
+| `shopping_items` | Shopping list rows: `nombre`, optional `cantidad` / `notas`, `comprado`, `comprado_en`, `orden`. |
 
 Indexes: `items.done_at`, `applications.empresa_key`, `applications.fecha`, `medications(activo, orden)`, `medication_doses.fecha`.
 
@@ -65,7 +66,7 @@ cd site
 npx vercel dev
 ```
 
-Open the local URL. The **Brief** tab loads `GET /api/brief`. Under **Necesita tu atención**, the form posts to `POST /api/item` (creates an `items` row with `seccion = 'atencion'`). Checking an item posts a batch to `POST /api/toggle`. The **Medicación** tab loads `GET /api/meds` (catalog + today’s doses); checkboxes post to `POST /api/med-dose`; catalog create/update use `POST` / `PATCH /api/meds`. The **Tracker** tab loads `GET /api/tracker` on demand.
+Open the local URL. The **Brief** tab loads `GET /api/brief`. Under **Necesita tu atención**, the form posts to `POST /api/item` (creates an `items` row with `seccion = 'atencion'`). Checking an item posts a batch to `POST /api/toggle`. The **Medicación** tab loads `GET /api/meds` (catalog + today’s doses); checkboxes post to `POST /api/med-dose`; catalog create/update use `POST` / `PATCH /api/meds`. The **Compras** tab loads `GET /api/shopping`; add/check/delete/clear-bought use `POST` / `PATCH` / `DELETE` / `POST` on `/api/shopping`. The **Tracker** tab loads `GET /api/tracker` on demand.
 
 Apply the schema yourself against the database you own, for example:
 
