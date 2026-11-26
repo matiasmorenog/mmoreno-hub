@@ -19,6 +19,37 @@ function el(tag, attrs = {}, ...kids) {
   for (const k of kids.flat()) if (k != null && k !== '') n.append(k.nodeType ? k : String(k));
   return n;
 }
+function svgIcon(paths, viewBox = '0 0 24 24') {
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  s.setAttribute('viewBox', viewBox);
+  s.setAttribute('width', '16');
+  s.setAttribute('height', '16');
+  s.setAttribute('aria-hidden', 'true');
+  s.setAttribute('focusable', 'false');
+  for (const d of [].concat(paths)) {
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('fill', 'currentColor');
+    p.setAttribute('d', d);
+    s.append(p);
+  }
+  return s;
+}
+const ICONS = {
+  // power — activar
+  power: 'M13 3a1 1 0 1 0-2 0v8a1 1 0 1 0 2 0V3zm4.66 2.34a1 1 0 0 0-1.41 1.41 6 6 0 1 1-8.5 0 1 1 0 1 0-1.41-1.41 8 8 0 1 0 11.32 0z',
+  // pause — desactivar
+  pause: 'M8 5a1 1 0 0 0-1 1v12a1 1 0 1 0 2 0V6a1 1 0 0 0-1-1zm8 0a1 1 0 0 0-1 1v12a1 1 0 1 0 2 0V6a1 1 0 0 0-1-1z',
+  trash: 'M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9zm-3 6a1 1 0 0 1 1 1v8a1 1 0 1 0 2 0v-8a1 1 0 1 1-2 0zm5 0a1 1 0 0 1 1 1v8a1 1 0 1 0 2 0v-8a1 1 0 1 1-2 0zm5 1a1 1 0 1 0-2 0v8a1 1 0 1 0 2 0v-8z',
+};
+function iconBtn({ label, onclick, danger, icon }) {
+  return el('button', {
+    type: 'button',
+    class: 'icon-btn' + (danger ? ' danger' : ''),
+    'aria-label': label,
+    title: label,
+    onclick,
+  }, svgIcon(ICONS[icon]));
+}
 function tabLink(label, url, tab) {
   return el('a', { href: url, target: tab || '_blank', onclick: (e) => {
     const w = window.open(url, tab || '_blank');
@@ -202,22 +233,25 @@ function medHoyRow(it) {
     it.momento ? el('span', { class: 'tag' }, MOMENTO_LABEL[it.momento] || it.momento) : null);
 }
 function medCatalogRow(it) {
+  const toggleLabel = it.activo ? 'Desactivar' : 'Activar';
   return el('li', { class: it.activo ? '' : 'done', 'data-med-cat': it.id },
     el('div', { class: 'body' },
       el('div', { class: 't' }, it.nombre),
       it.notas ? el('div', { class: 'd' }, it.notas) : null,
       el('div', { class: 'id' }, it.id)),
     it.momento ? el('span', { class: 'tag' }, MOMENTO_LABEL[it.momento] || it.momento) : null,
-    el('button', {
-      type: 'button',
-      class: 'ghost',
-      onclick: () => patchMed(it.id, { activo: !it.activo }),
-    }, it.activo ? 'Desactivar' : 'Activar'),
-    el('button', {
-      type: 'button',
-      class: 'ghost',
-      onclick: () => deleteMed(it.id, it.nombre),
-    }, 'Borrar'));
+    el('div', { class: 'row-actions' },
+      iconBtn({
+        label: toggleLabel,
+        icon: it.activo ? 'pause' : 'power',
+        onclick: () => patchMed(it.id, { activo: !it.activo }),
+      }),
+      iconBtn({
+        label: 'Borrar',
+        icon: 'trash',
+        danger: true,
+        onclick: () => deleteMed(it.id, it.nombre),
+      })));
 }
 function renderMeds() {
   if (!meds) return;
@@ -283,7 +317,7 @@ $('#addMed').addEventListener('submit', async (e) => {
   const nombre = $('#mNombre').value.trim();
   if (!nombre) return;
   const notas = $('#mNotas').value.trim() || null;
-  const momento = $('#mMomento').value || null;
+  const momento = $('#mMomento').value.trim() || null;
   const btn = e.target.querySelector('button');
   btn.disabled = true;
   setSync('Agregando…');
@@ -360,11 +394,13 @@ function shopRow(it) {
     el('div', { class: 'body' },
       el('div', { class: 't' }, it.nombre),
       detalle ? el('div', { class: 'd' }, detalle) : null),
-    el('button', {
-      type: 'button',
-      class: 'ghost',
-      onclick: () => deleteShop(it.id),
-    }, 'Borrar'));
+    el('div', { class: 'row-actions' },
+      iconBtn({
+        label: 'Borrar',
+        icon: 'trash',
+        danger: true,
+        onclick: () => deleteShop(it.id),
+      })));
 }
 function renderShopping() {
   if (!shopping) return;

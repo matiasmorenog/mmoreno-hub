@@ -69,12 +69,7 @@
     <form id="addMed" class="add-row">
       <input id="mNombre" type="text" placeholder="Nombre" required maxlength="200" autocomplete="off">
       <input id="mNotas" type="text" placeholder="Notas (opcional)" maxlength="500" autocomplete="off">
-      <select id="mMomento" aria-label="Momento del día">
-        <option value="">Sin momento</option>
-        <option value="manana">Mañana</option>
-        <option value="mediodia">Mediodía</option>
-        <option value="noche">Noche</option>
-      </select>
+      <input id="mMomento" type="text" placeholder="Momento (ej. mañana, 8am)" maxlength="40" autocomplete="off" aria-label="Momento del día">
       <button type="submit">Agregar</button>
     </form>
     <ul id="medCatalog" class="items"></ul>

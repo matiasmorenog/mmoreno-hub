@@ -29,7 +29,7 @@ This repository is the source. Pushing it does not change that deployment. Brief
 | `applications` | Job-search tracker: section, date, company, role, status, score, source, link, notes, and sort order. |
 | `seen` | Dedup keys (`clave`, type, company key, date, detail). |
 | `rutina_estado` | Named timestamps for routines. |
-| `medications` | Catalog of meds/supplements: `nombre`, optional `notas`, optional `momento` (`manana` / `mediodia` / `noche`), `activo`, `orden`. |
+| `medications` | Catalog of meds/supplements: `nombre`, optional `notas`, optional free-text `momento` (tag/time; legacy `manana`/`mediodia`/`noche` still shown as labels), `activo`, `orden`. |
 | `medication_doses` | Per-day taken flag (`medication_id`, `fecha`, `tomado`, `tomado_en`). Primary key is idempotent for one dose row per med per calendar day. |
 | `shopping_items` | Shopping list rows: `nombre`, optional `cantidad` / `notas`, `comprado`, `comprado_en`, `orden`. |
 

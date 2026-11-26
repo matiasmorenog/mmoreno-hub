@@ -76,7 +76,8 @@ CREATE TABLE IF NOT EXISTS medications (
   id text PRIMARY KEY,
   nombre text NOT NULL,
   notas text,
-  momento text CHECK (momento IS NULL OR momento IN ('manana','mediodia','noche')),
+  -- Free-text tag/time (e.g. "mañana", "8am"). Legacy values manana|mediodia|noche still valid.
+  momento text,
   activo boolean NOT NULL DEFAULT true,
   orden int NOT NULL DEFAULT 100,
   creado timestamptz NOT NULL DEFAULT now(),
