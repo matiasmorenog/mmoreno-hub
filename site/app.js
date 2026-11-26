@@ -7,7 +7,8 @@ const LS = {
 };
 const DEBOUNCE_MS = 2500;
 const RECENT_MS = 5 * 60 * 1000; // superpone tildes confirmadas sobre un GET cacheado
-let brief = null, timer = null, tracker = null;
+let brief = null, timer = null, tracker = null, meds = null, medTimer = null, shopping = null, shopTimer = null;
+const MOMENTO_LABEL = { manana: 'Mañana', mediodia: 'Mediodía', noche: 'Noche' };
 
 function el(tag, attrs = {}, ...kids) {
   const n = document.createElement(tag);
@@ -17,6 +18,37 @@ function el(tag, attrs = {}, ...kids) {
   }
   for (const k of kids.flat()) if (k != null && k !== '') n.append(k.nodeType ? k : String(k));
   return n;
+}
+function svgIcon(paths, viewBox = '0 0 24 24') {
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  s.setAttribute('viewBox', viewBox);
+  s.setAttribute('width', '16');
+  s.setAttribute('height', '16');
+  s.setAttribute('aria-hidden', 'true');
+  s.setAttribute('focusable', 'false');
+  for (const d of [].concat(paths)) {
+    const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    p.setAttribute('fill', 'currentColor');
+    p.setAttribute('d', d);
+    s.append(p);
+  }
+  return s;
+}
+const ICONS = {
+  // power — activar
+  power: 'M13 3a1 1 0 1 0-2 0v8a1 1 0 1 0 2 0V3zm4.66 2.34a1 1 0 0 0-1.41 1.41 6 6 0 1 1-8.5 0 1 1 0 1 0-1.41-1.41 8 8 0 1 0 11.32 0z',
+  // pause — desactivar
+  pause: 'M8 5a1 1 0 0 0-1 1v12a1 1 0 1 0 2 0V6a1 1 0 0 0-1-1zm8 0a1 1 0 0 0-1 1v12a1 1 0 1 0 2 0V6a1 1 0 0 0-1-1z',
+  trash: 'M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9zm-3 6a1 1 0 0 1 1 1v8a1 1 0 1 0 2 0v-8a1 1 0 1 1-2 0zm5 0a1 1 0 0 1 1 1v8a1 1 0 1 0 2 0v-8a1 1 0 1 1-2 0zm5 1a1 1 0 1 0-2 0v8a1 1 0 1 0 2 0v-8z',
+};
+function iconBtn({ label, onclick, danger, icon }) {
+  return el('button', {
+    type: 'button',
+    class: 'icon-btn' + (danger ? ' danger' : ''),
+    'aria-label': label,
+    title: label,
+    onclick,
+  }, svgIcon(ICONS[icon]));
 }
 function tabLink(label, url, tab) {
   return el('a', { href: url, target: tab || '_blank', onclick: (e) => {
@@ -109,6 +141,357 @@ function renderBrief() {
   if (!by.ofertas.length) tb.append(el('tr', {}, el('td', { colspan: 7, class: 'muted' }, 'Sin ofertas nuevas que pasen el corte.')));
 }
 
+// ---------- agregar pendiente (items.atencion) ----------
+$('#addPendiente').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!brief) return;
+  const titulo = $('#pTitulo').value.trim();
+  if (!titulo) return;
+  const detalle = $('#pDetalle').value.trim() || null;
+  const etiqueta = $('#pEtiqueta').value.trim() || null;
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  setSync('Agregando…');
+  try {
+    const r = await fetch('/api/item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titulo, detalle, etiqueta }),
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    const it = await r.json();
+    brief.items.push(it);
+    e.target.reset();
+    renderBrief();
+    setSync('Agregado');
+    $('#pTitulo').focus();
+  } catch {
+    setSync('No se pudo agregar');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------- medicación ----------
+const medPending = () => LS.get('mb_med_pending', {});
+function medEffective(it) {
+  const p = medPending();
+  if (it.id in p) return p[it.id];
+  const r = LS.get('mb_med_recent', {})[it.id];
+  if (r && Date.now() - r.t < RECENT_MS) return r.tomado;
+  return !!it.tomado;
+}
+function medToggle(id, tomado) {
+  const p = medPending(); p[id] = tomado; LS.set('mb_med_pending', p);
+  document.querySelectorAll(`[data-med="${CSS.escape(id)}"]`).forEach((n) => n.classList.toggle('done', tomado));
+  setSync('Guardando…');
+  clearTimeout(medTimer); medTimer = setTimeout(flushMeds, DEBOUNCE_MS);
+}
+async function flushMeds() {
+  clearTimeout(medTimer); medTimer = null;
+  const p = medPending();
+  const changes = Object.entries(p);
+  if (!changes.length) return;
+  try {
+    for (const [id, tomado] of changes) {
+      const r = await fetch('/api/med-dose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, tomado }),
+        keepalive: true,
+        credentials: 'same-origin',
+      });
+      if (r.status === 401) return showLogin();
+      if (!r.ok) throw new Error(r.status);
+      const now = medPending(), recent = LS.get('mb_med_recent', {});
+      if (now[id] === tomado) delete now[id];
+      recent[id] = { tomado, t: Date.now() };
+      LS.set('mb_med_pending', now); LS.set('mb_med_recent', recent);
+      if (meds) {
+        const it = meds.items.find((m) => m.id === id);
+        if (it) it.tomado = tomado;
+      }
+    }
+    setSync('Guardado');
+  } catch { setSync('Sin conexión: se guarda al volver'); }
+}
+function formatHoy(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  return dt.toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+}
+function medHoyRow(it) {
+  const tomado = medEffective(it);
+  return el('li', { class: tomado ? 'done' : '', 'data-med': it.id },
+    el('input', { type: 'checkbox', class: 'chk', checked: tomado, 'aria-label': 'Tomé: ' + it.nombre, onchange: (e) => medToggle(it.id, e.target.checked) }),
+    el('div', { class: 'body' },
+      el('div', { class: 't' }, it.nombre),
+      it.notas ? el('div', { class: 'd' }, it.notas) : null),
+    it.momento ? el('span', { class: 'tag' }, MOMENTO_LABEL[it.momento] || it.momento) : null);
+}
+function medCatalogRow(it) {
+  const toggleLabel = it.activo ? 'Desactivar' : 'Activar';
+  return el('li', { class: it.activo ? '' : 'done', 'data-med-cat': it.id },
+    el('div', { class: 'body' },
+      el('div', { class: 't' }, it.nombre),
+      it.notas ? el('div', { class: 'd' }, it.notas) : null,
+      el('div', { class: 'id' }, it.id)),
+    it.momento ? el('span', { class: 'tag' }, MOMENTO_LABEL[it.momento] || it.momento) : null,
+    el('div', { class: 'row-actions' },
+      iconBtn({
+        label: toggleLabel,
+        icon: it.activo ? 'pause' : 'power',
+        onclick: () => patchMed(it.id, { activo: !it.activo }),
+      }),
+      iconBtn({
+        label: 'Borrar',
+        icon: 'trash',
+        danger: true,
+        onclick: () => deleteMed(it.id, it.nombre),
+      })));
+}
+function renderMeds() {
+  if (!meds) return;
+  $('#medHoy').textContent = `Hoy · ${formatHoy(meds.hoy)} (${meds.tz || 'America/Argentina/Buenos_Aires'})`;
+  const activos = meds.items.filter((m) => m.activo);
+  const ul = $('#medHoyList');
+  ul.replaceChildren(...activos.map(medHoyRow));
+  if (!activos.length) ul.append(el('li', { class: 'muted' }, 'Sin medicamentos activos. Agregá uno abajo.'));
+  const cat = $('#medCatalog');
+  cat.replaceChildren(...meds.items.map(medCatalogRow));
+  if (!meds.items.length) cat.append(el('li', { class: 'muted' }, 'Catálogo vacío.'));
+}
+async function loadMeds(force) {
+  if (meds && !force) return renderMeds();
+  setSync('Cargando medicación…');
+  const r = await fetch('/api/meds', { credentials: 'same-origin', cache: force ? 'reload' : 'default' });
+  if (r.status === 401) return showLogin();
+  if (!r.ok) { setSync('Error medicación (' + r.status + ')'); return; }
+  meds = await r.json();
+  setSync('');
+  renderMeds();
+  if (Object.keys(medPending()).length) flushMeds();
+}
+async function patchMed(id, patch) {
+  setSync('Guardando…');
+  try {
+    const r = await fetch('/api/meds', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...patch }),
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    const updated = await r.json();
+    const it = meds.items.find((m) => m.id === id);
+    if (it) Object.assign(it, updated);
+    renderMeds();
+    setSync('Guardado');
+  } catch { setSync('No se pudo actualizar'); }
+}
+async function deleteMed(id, nombre) {
+  if (!confirm(`¿Borrar «${nombre || id}» del catálogo? Se pierden también las tomas registradas.`)) return;
+  setSync('Borrando…');
+  try {
+    const r = await fetch('/api/meds', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    if (meds) meds.items = meds.items.filter((m) => m.id !== id);
+    const p = medPending(); delete p[id]; LS.set('mb_med_pending', p);
+    const recent = LS.get('mb_med_recent', {}); delete recent[id]; LS.set('mb_med_recent', recent);
+    renderMeds();
+    setSync('Borrado');
+  } catch { setSync('No se pudo borrar'); }
+}
+$('#addMed').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nombre = $('#mNombre').value.trim();
+  if (!nombre) return;
+  const notas = $('#mNotas').value.trim() || null;
+  const momento = $('#mMomento').value.trim() || null;
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  setSync('Agregando…');
+  try {
+    const r = await fetch('/api/meds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre, notas, momento }),
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    const it = await r.json();
+    if (!meds) meds = { hoy: '', tz: 'America/Argentina/Buenos_Aires', items: [] };
+    meds.items.push(it);
+    meds.items.sort((a, b) => (a.orden - b.orden) || a.id.localeCompare(b.id));
+    e.target.reset();
+    renderMeds();
+    setSync('Agregado');
+    $('#mNombre').focus();
+  } catch { setSync('No se pudo agregar'); }
+  finally { btn.disabled = false; }
+});
+
+// ---------- compras ----------
+const shopPending = () => LS.get('mb_shop_pending', {});
+function shopEffective(it) {
+  const p = shopPending();
+  if (it.id in p) return p[it.id];
+  const r = LS.get('mb_shop_recent', {})[it.id];
+  if (r && Date.now() - r.t < RECENT_MS) return r.comprado;
+  return !!it.comprado;
+}
+function shopToggle(id, comprado) {
+  const p = shopPending(); p[id] = comprado; LS.set('mb_shop_pending', p);
+  document.querySelectorAll(`[data-shop="${CSS.escape(id)}"]`).forEach((n) => n.classList.toggle('done', comprado));
+  setSync('Guardando…');
+  clearTimeout(shopTimer); shopTimer = setTimeout(flushShop, DEBOUNCE_MS);
+}
+async function flushShop() {
+  clearTimeout(shopTimer); shopTimer = null;
+  const p = shopPending();
+  const changes = Object.entries(p);
+  if (!changes.length) return;
+  try {
+    for (const [id, comprado] of changes) {
+      const r = await fetch('/api/shopping', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, comprado }),
+        keepalive: true,
+        credentials: 'same-origin',
+      });
+      if (r.status === 401) return showLogin();
+      if (!r.ok) throw new Error(r.status);
+      const now = shopPending(), recent = LS.get('mb_shop_recent', {});
+      if (now[id] === comprado) delete now[id];
+      recent[id] = { comprado, t: Date.now() };
+      LS.set('mb_shop_pending', now); LS.set('mb_shop_recent', recent);
+      if (shopping) {
+        const it = shopping.items.find((s) => s.id === id);
+        if (it) { it.comprado = comprado; if (comprado) it.comprado_en = new Date().toISOString(); else it.comprado_en = null; }
+      }
+    }
+    setSync('Guardado');
+    renderShopping();
+  } catch { setSync('Sin conexión: se guarda al volver'); }
+}
+function shopRow(it) {
+  const comprado = shopEffective(it);
+  const detalle = [it.cantidad, it.notas].filter(Boolean).join(' · ');
+  return el('li', { class: comprado ? 'done' : '', 'data-shop': it.id },
+    el('input', { type: 'checkbox', class: 'chk', checked: comprado, 'aria-label': 'Comprado: ' + it.nombre, onchange: (e) => shopToggle(it.id, e.target.checked) }),
+    el('div', { class: 'body' },
+      el('div', { class: 't' }, it.nombre),
+      detalle ? el('div', { class: 'd' }, detalle) : null),
+    el('div', { class: 'row-actions' },
+      iconBtn({
+        label: 'Borrar',
+        icon: 'trash',
+        danger: true,
+        onclick: () => deleteShop(it.id),
+      })));
+}
+function renderShopping() {
+  if (!shopping) return;
+  const open = shopping.items.filter((s) => !shopEffective(s));
+  const bought = shopping.items.filter((s) => shopEffective(s));
+  $('#shopMeta').textContent = `${open.length} pendiente${open.length === 1 ? '' : 's'} · ${bought.length} comprado${bought.length === 1 ? '' : 's'}`;
+  const ulOpen = $('#shopOpen');
+  ulOpen.replaceChildren(...open.map(shopRow));
+  if (!open.length) ulOpen.append(el('li', { class: 'muted' }, 'Nada pendiente. Agregá algo arriba.'));
+  const ulBought = $('#shopBought');
+  ulBought.replaceChildren(...bought.map(shopRow));
+  if (!bought.length) ulBought.append(el('li', { class: 'muted' }, 'Todavía no marcaste nada como comprado.'));
+  $('#clearBought').disabled = !bought.length;
+}
+async function loadShopping(force) {
+  if (shopping && !force) return renderShopping();
+  setSync('Cargando compras…');
+  const r = await fetch('/api/shopping', { credentials: 'same-origin', cache: force ? 'reload' : 'default' });
+  if (r.status === 401) return showLogin();
+  if (!r.ok) { setSync('Error compras (' + r.status + ')'); return; }
+  shopping = await r.json();
+  setSync('');
+  renderShopping();
+  if (Object.keys(shopPending()).length) flushShop();
+}
+async function deleteShop(id) {
+  setSync('Borrando…');
+  try {
+    const r = await fetch('/api/shopping', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    if (shopping) shopping.items = shopping.items.filter((s) => s.id !== id);
+    const p = shopPending(); delete p[id]; LS.set('mb_shop_pending', p);
+    renderShopping();
+    setSync('Borrado');
+  } catch { setSync('No se pudo borrar'); }
+}
+$('#addShop').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nombre = $('#sNombre').value.trim();
+  if (!nombre) return;
+  const cantidad = $('#sCantidad').value.trim() || null;
+  const notas = $('#sNotas').value.trim() || null;
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  setSync('Agregando…');
+  try {
+    const r = await fetch('/api/shopping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre, cantidad, notas }),
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    const it = await r.json();
+    if (!shopping) shopping = { items: [] };
+    shopping.items.push(it);
+    shopping.items.sort((a, b) => (a.comprado - b.comprado) || (a.orden - b.orden) || a.id.localeCompare(b.id));
+    e.target.reset();
+    renderShopping();
+    setSync('Agregado');
+    $('#sNombre').focus();
+  } catch { setSync('No se pudo agregar'); }
+  finally { btn.disabled = false; }
+});
+$('#clearBought').addEventListener('click', async () => {
+  if (!$('#clearBought').disabled && !confirm('¿Borrar todos los comprados?')) return;
+  setSync('Limpiando…');
+  try {
+    const r = await fetch('/api/shopping', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'clear_bought' }),
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    LS.set('mb_shop_pending', {});
+    LS.set('mb_shop_recent', {});
+    shopping = null;
+    await loadShopping(true);
+    setSync('Comprados limpiados');
+  } catch { setSync('No se pudo limpiar'); }
+});
+
 // ---------- tracker (a demanda, cacheado por versión) ----------
 async function loadTracker() {
   if (tracker) return renderTracker();
@@ -148,14 +531,16 @@ let ft; for (const id of ['#fEmpresa', '#fEstado', '#fSeccion']) $(id).addEventL
 // ---------- vistas / login ----------
 function show(view) {
   $('#login').hidden = true;
-  for (const v of ['brief', 'tracker']) $('#view-' + v).hidden = v !== view;
+  for (const v of ['brief', 'meds', 'compras', 'tracker']) $('#view-' + v).hidden = v !== view;
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
   if (view === 'tracker') loadTracker();
+  if (view === 'meds') loadMeds(false);
+  if (view === 'compras') loadShopping(false);
   if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
 }
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => brief && show(b.dataset.view)));
 function showLogin() {
-  for (const v of ['brief', 'tracker']) $('#view-' + v).hidden = true;
+  for (const v of ['brief', 'meds', 'compras', 'tracker']) $('#view-' + v).hidden = true;
   $('#login').hidden = false; $('#pw').focus();
 }
 $('#loginForm').addEventListener('submit', async (e) => {
@@ -175,7 +560,8 @@ async function start(fresh) {
   if (!r.ok) { setSync('Error al cargar (' + r.status + ')'); return; }
   brief = await r.json();
   renderBrief();
-  show(location.hash === '#tracker' ? 'tracker' : 'brief');
+  const hash = (location.hash || '').slice(1);
+  show(['tracker', 'meds', 'compras'].includes(hash) ? hash : 'brief');
   if (Object.keys(pending()).length) flush(); // reenvía lo que quedó de una sesión anterior
 }
 start(false);

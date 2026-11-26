@@ -17,6 +17,8 @@
   <h1 class="brand"><img src="/favicon.svg" alt="" width="28" height="28">mmoreno-hub</h1>
   <nav class="tabs" role="tablist">
     <button data-view="brief" class="on" role="tab">Brief</button>
+    <button data-view="meds" role="tab">Medicación</button>
+    <button data-view="compras" role="tab">Compras</button>
     <button data-view="tracker" role="tab">Tracker</button>
   </nav>
   <span id="sync" class="sync" aria-live="polite"></span>
@@ -41,6 +43,12 @@
       <div class="card"><h3>Fuera de la búsqueda</h3><p id="fuera"></p></div>
     </div>
     <h2>Necesita tu atención</h2>
+    <form id="addPendiente" class="add-row">
+      <input id="pTitulo" type="text" placeholder="Pendiente o recordatorio" required maxlength="500" autocomplete="off">
+      <input id="pDetalle" type="text" placeholder="Detalle (opcional)" maxlength="500" autocomplete="off">
+      <input id="pEtiqueta" type="text" placeholder="Etiqueta" maxlength="40" autocomplete="off">
+      <button type="submit">Agregar</button>
+    </form>
     <ul id="sec-atencion" class="items"></ul>
     <h2>Listos para enviar <span class="muted small">(necesitan tu sí)</span></h2>
     <ul id="sec-listos" class="items"></ul>
@@ -51,6 +59,38 @@
     <h2>Resuelto / novedades</h2>
     <ul id="sec-resuelto" class="items"></ul>
     <details class="card"><summary>Descartadas y fuentes</summary><p id="descartadas"></p><p id="fuentes"></p></details>
+  </section>
+
+  <section id="view-meds" hidden>
+    <p id="medHoy" class="muted"></p>
+    <h2>Hoy</h2>
+    <ul id="medHoyList" class="items"></ul>
+    <h2>Catálogo</h2>
+    <form id="addMed" class="add-row">
+      <input id="mNombre" type="text" placeholder="Nombre" required maxlength="200" autocomplete="off">
+      <input id="mNotas" type="text" placeholder="Notas (opcional)" maxlength="500" autocomplete="off">
+      <input id="mMomento" type="text" placeholder="Momento (ej. mañana, 8am)" maxlength="40" autocomplete="off" aria-label="Momento del día">
+      <button type="submit">Agregar</button>
+    </form>
+    <ul id="medCatalog" class="items"></ul>
+  </section>
+
+
+  <section id="view-compras" hidden>
+    <p id="shopMeta" class="muted"></p>
+    <form id="addShop" class="add-row">
+      <input id="sNombre" type="text" placeholder="Qué comprar" required maxlength="200" autocomplete="off">
+      <input id="sCantidad" type="text" placeholder="Cantidad (opcional)" maxlength="100" autocomplete="off">
+      <input id="sNotas" type="text" placeholder="Notas (opcional)" maxlength="500" autocomplete="off">
+      <button type="submit">Agregar</button>
+    </form>
+    <h2>Pendientes</h2>
+    <ul id="shopOpen" class="items"></ul>
+    <div class="shop-bought-head">
+      <h2>Comprados</h2>
+      <button type="button" id="clearBought" class="ghost">Limpiar comprados</button>
+    </div>
+    <ul id="shopBought" class="items"></ul>
   </section>
 
   <section id="view-tracker" hidden>

@@ -70,3 +70,56 @@ CREATE TABLE IF NOT EXISTS rutina_estado (
   clave text PRIMARY KEY,
   valor timestamptz NOT NULL DEFAULT now()
 );
+
+-- Medicación / suplementos (checklist diario)
+CREATE TABLE IF NOT EXISTS medications (
+  id text PRIMARY KEY,
+  nombre text NOT NULL,
+  notas text,
+  -- Free-text tag/time (e.g. "mañana", "8am"). Legacy values manana|mediodia|noche still valid.
+  momento text,
+  activo boolean NOT NULL DEFAULT true,
+  orden int NOT NULL DEFAULT 100,
+  creado timestamptz NOT NULL DEFAULT now(),
+  actualizado timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS medications_activo_orden_idx ON medications (activo, orden, id);
+
+CREATE TABLE IF NOT EXISTS medication_doses (
+  medication_id text NOT NULL REFERENCES medications(id) ON DELETE CASCADE,
+  fecha date NOT NULL,
+  tomado boolean NOT NULL DEFAULT false,
+  tomado_en timestamptz,
+  actualizado timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (medication_id, fecha)
+);
+CREATE INDEX IF NOT EXISTS medication_doses_fecha_idx ON medication_doses (fecha DESC);
+
+-- Semilla de ejemplo (nombres genéricos, sin historial médico real)
+INSERT INTO medications (id, nombre, notas, momento, activo, orden) VALUES
+  ('antibiotico-a', 'Antibiotico A', NULL, 'manana', true, 10),
+  ('creatina', 'Creatina', NULL, 'manana', true, 20),
+  ('locion-cuero-cabelludo', 'Locion cuero cabelludo', NULL, 'noche', true, 30)
+ON CONFLICT (id) DO NOTHING;
+
+-- Lista de compras
+CREATE TABLE IF NOT EXISTS shopping_items (
+  id text PRIMARY KEY,
+  nombre text NOT NULL,
+  cantidad text,
+  notas text,
+  comprado boolean NOT NULL DEFAULT false,
+  comprado_en timestamptz,
+  orden int NOT NULL DEFAULT 100,
+  creado timestamptz NOT NULL DEFAULT now(),
+  actualizado timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS shopping_items_comprado_orden_idx
+  ON shopping_items (comprado, orden, id);
+
+-- Semilla de ejemplo (nombres genéricos)
+INSERT INTO shopping_items (id, nombre, cantidad, notas, comprado, orden) VALUES
+  ('leche', 'Leche', '1 L', NULL, false, 10),
+  ('pan', 'Pan', '1', NULL, false, 20),
+  ('huevos', 'Huevos', 'docena', NULL, false, 30)
+ON CONFLICT (id) DO NOTHING;
