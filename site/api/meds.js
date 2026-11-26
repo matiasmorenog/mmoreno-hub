@@ -2,7 +2,13 @@ import crypto from 'node:crypto';
 import { db, guard, body } from './_lib.js';
 
 const TZ = 'America/Argentina/Buenos_Aires';
-const MOMENTOS = new Set(['manana', 'mediodia', 'noche']);
+const MOMENTO_MAX = 40;
+
+function normalizeMomento(v) {
+  if (typeof v !== 'string') return null;
+  const t = v.trim().replace(/\s+/g, ' ').slice(0, MOMENTO_MAX);
+  return t || null;
+}
 
 function slugId(nombre) {
   const base = String(nombre)
@@ -71,7 +77,7 @@ export default async function handler(req, res) {
     const nombre = typeof b.nombre === 'string' ? b.nombre.trim() : '';
     if (!nombre || nombre.length > 200) return res.status(400).json({ error: 'nombre' });
     const notas = typeof b.notas === 'string' ? (b.notas.trim().slice(0, 2000) || null) : null;
-    const momento = typeof b.momento === 'string' && MOMENTOS.has(b.momento) ? b.momento : null;
+    const momento = normalizeMomento(b.momento);
     const activo = typeof b.activo === 'boolean' ? b.activo : true;
     const orden = typeof b.orden === 'number' && Number.isFinite(b.orden) ? Math.trunc(b.orden) : null;
     const id = typeof b.id === 'string' && b.id.length && b.id.length < 100 ? b.id : slugId(nombre);
@@ -90,9 +96,7 @@ export default async function handler(req, res) {
       ? (typeof b.notas === 'string' ? (b.notas.trim().slice(0, 2000) || null) : null)
       : null;
     const clearMomento = Object.prototype.hasOwnProperty.call(b, 'momento');
-    const momento = clearMomento
-      ? (typeof b.momento === 'string' && MOMENTOS.has(b.momento) ? b.momento : null)
-      : null;
+    const momento = clearMomento ? normalizeMomento(b.momento) : null;
     const activo = typeof b.activo === 'boolean' ? b.activo : null;
     const orden = typeof b.orden === 'number' && Number.isFinite(b.orden) ? Math.trunc(b.orden) : null;
     const rows = await db().query(UPD, [id, nombre, clearNotas, notas, clearMomento, momento, activo, orden]);
