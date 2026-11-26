@@ -66,7 +66,7 @@ cd site
 npx vercel dev
 ```
 
-Open the local URL. The **Brief** tab loads `GET /api/brief`. Under **Necesita tu atención**, the form posts to `POST /api/item` (creates an `items` row with `seccion = 'atencion'`). Checking an item posts a batch to `POST /api/toggle`. The **Medicación** tab loads `GET /api/meds` (catalog + today’s doses); checkboxes post to `POST /api/med-dose`; catalog create/update use `POST` / `PATCH /api/meds`. The **Compras** tab loads `GET /api/shopping`; add/check/delete/clear-bought use `POST` / `PATCH` / `DELETE` / `POST` on `/api/shopping`. The **Tracker** tab loads `GET /api/tracker` on demand.
+Open the local URL. The **Brief** tab loads `GET /api/brief`. Under **Necesita tu atención**, the form posts to `POST /api/item` (creates an `items` row with `seccion = 'atencion'`). Checking an item posts a batch to `POST /api/toggle`. The **Medicación** tab loads `GET /api/meds` (catalog + today’s doses); checkboxes post to `POST /api/med-dose`; catalog create/update/delete use `POST` / `PATCH` / `DELETE /api/meds` (hard delete; dose rows cascade). The **Compras** tab loads `GET /api/shopping`; add/check/delete/clear-bought use `POST` / `PATCH` / `DELETE` / `POST` on `/api/shopping`. The **Tracker** tab loads `GET /api/tracker` on demand.
 
 Apply the schema yourself against the database you own, for example:
 

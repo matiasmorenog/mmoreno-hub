@@ -54,6 +54,9 @@ UPDATE medications SET
 WHERE id = $1
 RETURNING id, nombre, notas, momento, activo, orden`;
 
+// Hard delete: medication_doses.medication_id REFERENCES medications(id) ON DELETE CASCADE.
+const DEL = `DELETE FROM medications WHERE id = $1 RETURNING id`;
+
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   if (!guard(req, res)) return;
@@ -95,6 +98,15 @@ export default async function handler(req, res) {
     const rows = await db().query(UPD, [id, nombre, clearNotas, notas, clearMomento, momento, activo, orden]);
     if (!rows.length) return res.status(404).json({ error: 'not_found' });
     return res.status(200).json(rows[0]);
+  }
+
+  if (req.method === 'DELETE') {
+    const b = body(req);
+    const id = typeof b.id === 'string' ? b.id : (typeof req.query?.id === 'string' ? req.query.id : '');
+    if (!id || id.length > 100) return res.status(400).json({ error: 'id' });
+    const rows = await db().query(DEL, [id]);
+    if (!rows.length) return res.status(404).json({ error: 'not_found' });
+    return res.status(200).json({ deleted: rows[0].id });
   }
 
   return res.status(405).end();
