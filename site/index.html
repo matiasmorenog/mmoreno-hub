@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="es-AR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>mmoreno-hub</title>
+<link rel="icon" href="/favicon.ico" sizes="32x32">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<meta name="theme-color" content="#18181b">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="top">
+  <h1 class="brand"><img src="/favicon.svg" alt="" width="28" height="28">mmoreno-hub</h1>
+  <nav class="tabs" role="tablist">
+    <button data-view="brief" class="on" role="tab">Brief</button>
+    <button data-view="tracker" role="tab">Tracker</button>
+  </nav>
+  <span id="sync" class="sync" aria-live="polite"></span>
+</header>
+
+<main>
+  <section id="login" hidden>
+    <form id="loginForm" class="card login">
+      <h2>Entrar</h2>
+      <input type="password" id="pw" autocomplete="current-password" placeholder="Contraseña" required>
+      <button type="submit">Entrar</button>
+      <p id="loginErr" class="err" hidden>Contraseña incorrecta.</p>
+    </form>
+  </section>
+
+  <section id="view-brief" hidden>
+    <p id="corrida" class="muted"></p>
+    <div id="titular" class="callout"></div>
+    <div class="grid3">
+      <div class="card"><h3>Agenda</h3><p id="agenda"></p></div>
+      <div class="card"><h3>Procesos abiertos</h3><p id="procesos"></p></div>
+      <div class="card"><h3>Fuera de la búsqueda</h3><p id="fuera"></p></div>
+    </div>
+    <h2>Necesita tu atención</h2>
+    <ul id="sec-atencion" class="items"></ul>
+    <h2>Listos para enviar <span class="muted small">(necesitan tu sí)</span></h2>
+    <ul id="sec-listos" class="items"></ul>
+    <h2>Ofertas nuevas</h2>
+    <div class="tablewrap"><table id="sec-ofertas" class="tbl">
+      <thead><tr><th></th><th>Score</th><th>Rol y empresa</th><th>Modalidad</th><th>Publicada</th><th>Sueldo</th><th>Link</th></tr></thead>
+      <tbody></tbody></table></div>
+    <h2>Resuelto / novedades</h2>
+    <ul id="sec-resuelto" class="items"></ul>
+    <details class="card"><summary>Descartadas y fuentes</summary><p id="descartadas"></p><p id="fuentes"></p></details>
+  </section>
+
+  <section id="view-tracker" hidden>
+    <div class="filters">
+      <input id="fEmpresa" type="search" placeholder="Buscar empresa o rol">
+      <select id="fEstado"><option value="">Todos (sin barridos)</option><option value="*">Todos con barridos</option></select>
+      <select id="fSeccion"><option value="">Todas las tablas</option><option value="principal">Principal</option><option value="indeed">Indeed</option><option value="recuperado">Chat viejo</option></select>
+      <span id="tCount" class="muted"></span>
+    </div>
+    <div class="tablewrap"><table class="tbl" id="tTable">
+      <thead><tr><th>Fecha</th><th>Empresa</th><th>Rol</th><th>Estado</th><th>Score</th><th>Fuente</th></tr></thead>
+      <tbody></tbody></table></div>
+  </section>
+</main>
+<script src="/app.js" defer></script>
+</body>
+</html>

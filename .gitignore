@@ -1,0 +1,10 @@
+.env*
+!.env.example
+.database_url
+.password
+.session_secret
+.bypass_tmp
+.seed.json
+.applications.json
+node_modules
+.b64
