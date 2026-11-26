@@ -100,3 +100,25 @@ INSERT INTO medications (id, nombre, notas, momento, activo, orden) VALUES
   ('creatina', 'Creatina', NULL, 'manana', true, 20),
   ('locion-cuero-cabelludo', 'Locion cuero cabelludo', NULL, 'noche', true, 30)
 ON CONFLICT (id) DO NOTHING;
+
+-- Lista de compras
+CREATE TABLE IF NOT EXISTS shopping_items (
+  id text PRIMARY KEY,
+  nombre text NOT NULL,
+  cantidad text,
+  notas text,
+  comprado boolean NOT NULL DEFAULT false,
+  comprado_en timestamptz,
+  orden int NOT NULL DEFAULT 100,
+  creado timestamptz NOT NULL DEFAULT now(),
+  actualizado timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS shopping_items_comprado_orden_idx
+  ON shopping_items (comprado, orden, id);
+
+-- Semilla de ejemplo (nombres genéricos)
+INSERT INTO shopping_items (id, nombre, cantidad, notas, comprado, orden) VALUES
+  ('leche', 'Leche', '1 L', NULL, false, 10),
+  ('pan', 'Pan', '1', NULL, false, 20),
+  ('huevos', 'Huevos', 'docena', NULL, false, 30)
+ON CONFLICT (id) DO NOTHING;
