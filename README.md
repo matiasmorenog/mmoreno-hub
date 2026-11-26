@@ -4,7 +4,7 @@ Personal hub for Matias Adrian Moreno Gallo. Tools live as sections of the same 
 
 The daily brief stays one section of the hub. It is not a separate product.
 
-Live app: <https://mmoreno-brief.vercel.app>
+Live app: <https://mmoreno-hub.vercel.app>
 
 This repository is the source. Pushing it does not change that deployment. Brief rows, tracker rows, and credentials live in Neon and in the host's environment, not in git.
 
@@ -76,7 +76,7 @@ psql "$DATABASE_URL" -f schema.sql
 
 ## Deploy
 
-Production is already at <https://mmoreno-brief.vercel.app>. Do not retarget or redeploy that project unless you mean to change the live app.
+Production is already at <https://mmoreno-hub.vercel.app> (Vercel project `mmoreno-hub`). Legacy aliases `mmoreno-brief.vercel.app` and `matias-brief.vercel.app` redirect there (308). Do not retarget or redeploy that project unless you mean to change the live app.
 
 For a new or preview deployment:
 
