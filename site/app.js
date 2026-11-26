@@ -7,7 +7,8 @@ const LS = {
 };
 const DEBOUNCE_MS = 2500;
 const RECENT_MS = 5 * 60 * 1000; // superpone tildes confirmadas sobre un GET cacheado
-let brief = null, timer = null, tracker = null;
+let brief = null, timer = null, tracker = null, meds = null, medTimer = null;
+const MOMENTO_LABEL = { manana: 'Mañana', mediodia: 'Mediodía', noche: 'Noche' };
 
 function el(tag, attrs = {}, ...kids) {
   const n = document.createElement(tag);
@@ -142,6 +143,147 @@ $('#addPendiente').addEventListener('submit', async (e) => {
   }
 });
 
+// ---------- medicación ----------
+const medPending = () => LS.get('mb_med_pending', {});
+function medEffective(it) {
+  const p = medPending();
+  if (it.id in p) return p[it.id];
+  const r = LS.get('mb_med_recent', {})[it.id];
+  if (r && Date.now() - r.t < RECENT_MS) return r.tomado;
+  return !!it.tomado;
+}
+function medToggle(id, tomado) {
+  const p = medPending(); p[id] = tomado; LS.set('mb_med_pending', p);
+  document.querySelectorAll(`[data-med="${CSS.escape(id)}"]`).forEach((n) => n.classList.toggle('done', tomado));
+  setSync('Guardando…');
+  clearTimeout(medTimer); medTimer = setTimeout(flushMeds, DEBOUNCE_MS);
+}
+async function flushMeds() {
+  clearTimeout(medTimer); medTimer = null;
+  const p = medPending();
+  const changes = Object.entries(p);
+  if (!changes.length) return;
+  try {
+    for (const [id, tomado] of changes) {
+      const r = await fetch('/api/med-dose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, tomado }),
+        keepalive: true,
+        credentials: 'same-origin',
+      });
+      if (r.status === 401) return showLogin();
+      if (!r.ok) throw new Error(r.status);
+      const now = medPending(), recent = LS.get('mb_med_recent', {});
+      if (now[id] === tomado) delete now[id];
+      recent[id] = { tomado, t: Date.now() };
+      LS.set('mb_med_pending', now); LS.set('mb_med_recent', recent);
+      if (meds) {
+        const it = meds.items.find((m) => m.id === id);
+        if (it) it.tomado = tomado;
+      }
+    }
+    setSync('Guardado');
+  } catch { setSync('Sin conexión: se guarda al volver'); }
+}
+function formatHoy(iso) {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  return dt.toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
+}
+function medHoyRow(it) {
+  const tomado = medEffective(it);
+  return el('li', { class: tomado ? 'done' : '', 'data-med': it.id },
+    el('input', { type: 'checkbox', class: 'chk', checked: tomado, 'aria-label': 'Tomé: ' + it.nombre, onchange: (e) => medToggle(it.id, e.target.checked) }),
+    el('div', { class: 'body' },
+      el('div', { class: 't' }, it.nombre),
+      it.notas ? el('div', { class: 'd' }, it.notas) : null),
+    it.momento ? el('span', { class: 'tag' }, MOMENTO_LABEL[it.momento] || it.momento) : null);
+}
+function medCatalogRow(it) {
+  return el('li', { class: it.activo ? '' : 'done', 'data-med-cat': it.id },
+    el('div', { class: 'body' },
+      el('div', { class: 't' }, it.nombre),
+      it.notas ? el('div', { class: 'd' }, it.notas) : null,
+      el('div', { class: 'id' }, it.id)),
+    it.momento ? el('span', { class: 'tag' }, MOMENTO_LABEL[it.momento] || it.momento) : null,
+    el('button', {
+      type: 'button',
+      class: 'ghost',
+      onclick: () => patchMed(it.id, { activo: !it.activo }),
+    }, it.activo ? 'Desactivar' : 'Activar'));
+}
+function renderMeds() {
+  if (!meds) return;
+  $('#medHoy').textContent = `Hoy · ${formatHoy(meds.hoy)} (${meds.tz || 'America/Argentina/Buenos_Aires'})`;
+  const activos = meds.items.filter((m) => m.activo);
+  const ul = $('#medHoyList');
+  ul.replaceChildren(...activos.map(medHoyRow));
+  if (!activos.length) ul.append(el('li', { class: 'muted' }, 'Sin medicamentos activos. Agregá uno abajo.'));
+  const cat = $('#medCatalog');
+  cat.replaceChildren(...meds.items.map(medCatalogRow));
+  if (!meds.items.length) cat.append(el('li', { class: 'muted' }, 'Catálogo vacío.'));
+}
+async function loadMeds(force) {
+  if (meds && !force) return renderMeds();
+  setSync('Cargando medicación…');
+  const r = await fetch('/api/meds', { credentials: 'same-origin', cache: force ? 'reload' : 'default' });
+  if (r.status === 401) return showLogin();
+  if (!r.ok) { setSync('Error medicación (' + r.status + ')'); return; }
+  meds = await r.json();
+  setSync('');
+  renderMeds();
+  if (Object.keys(medPending()).length) flushMeds();
+}
+async function patchMed(id, patch) {
+  setSync('Guardando…');
+  try {
+    const r = await fetch('/api/meds', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, ...patch }),
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    const updated = await r.json();
+    const it = meds.items.find((m) => m.id === id);
+    if (it) Object.assign(it, updated);
+    renderMeds();
+    setSync('Guardado');
+  } catch { setSync('No se pudo actualizar'); }
+}
+$('#addMed').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nombre = $('#mNombre').value.trim();
+  if (!nombre) return;
+  const notas = $('#mNotas').value.trim() || null;
+  const momento = $('#mMomento').value || null;
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  setSync('Agregando…');
+  try {
+    const r = await fetch('/api/meds', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre, notas, momento }),
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    const it = await r.json();
+    if (!meds) meds = { hoy: '', tz: 'America/Argentina/Buenos_Aires', items: [] };
+    meds.items.push(it);
+    meds.items.sort((a, b) => (a.orden - b.orden) || a.id.localeCompare(b.id));
+    e.target.reset();
+    renderMeds();
+    setSync('Agregado');
+    $('#mNombre').focus();
+  } catch { setSync('No se pudo agregar'); }
+  finally { btn.disabled = false; }
+});
+
 // ---------- tracker (a demanda, cacheado por versión) ----------
 async function loadTracker() {
   if (tracker) return renderTracker();
@@ -181,14 +323,15 @@ let ft; for (const id of ['#fEmpresa', '#fEstado', '#fSeccion']) $(id).addEventL
 // ---------- vistas / login ----------
 function show(view) {
   $('#login').hidden = true;
-  for (const v of ['brief', 'tracker']) $('#view-' + v).hidden = v !== view;
+  for (const v of ['brief', 'meds', 'tracker']) $('#view-' + v).hidden = v !== view;
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
   if (view === 'tracker') loadTracker();
+  if (view === 'meds') loadMeds(false);
   if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
 }
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => brief && show(b.dataset.view)));
 function showLogin() {
-  for (const v of ['brief', 'tracker']) $('#view-' + v).hidden = true;
+  for (const v of ['brief', 'meds', 'tracker']) $('#view-' + v).hidden = true;
   $('#login').hidden = false; $('#pw').focus();
 }
 $('#loginForm').addEventListener('submit', async (e) => {
@@ -208,7 +351,8 @@ async function start(fresh) {
   if (!r.ok) { setSync('Error al cargar (' + r.status + ')'); return; }
   brief = await r.json();
   renderBrief();
-  show(location.hash === '#tracker' ? 'tracker' : 'brief');
+  const hash = (location.hash || '').slice(1);
+  show(hash === 'tracker' || hash === 'meds' ? hash : 'brief');
   if (Object.keys(pending()).length) flush(); // reenvía lo que quedó de una sesión anterior
 }
 start(false);

@@ -70,3 +70,33 @@ CREATE TABLE IF NOT EXISTS rutina_estado (
   clave text PRIMARY KEY,
   valor timestamptz NOT NULL DEFAULT now()
 );
+
+-- Medicación / suplementos (checklist diario)
+CREATE TABLE IF NOT EXISTS medications (
+  id text PRIMARY KEY,
+  nombre text NOT NULL,
+  notas text,
+  momento text CHECK (momento IS NULL OR momento IN ('manana','mediodia','noche')),
+  activo boolean NOT NULL DEFAULT true,
+  orden int NOT NULL DEFAULT 100,
+  creado timestamptz NOT NULL DEFAULT now(),
+  actualizado timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS medications_activo_orden_idx ON medications (activo, orden, id);
+
+CREATE TABLE IF NOT EXISTS medication_doses (
+  medication_id text NOT NULL REFERENCES medications(id) ON DELETE CASCADE,
+  fecha date NOT NULL,
+  tomado boolean NOT NULL DEFAULT false,
+  tomado_en timestamptz,
+  actualizado timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (medication_id, fecha)
+);
+CREATE INDEX IF NOT EXISTS medication_doses_fecha_idx ON medication_doses (fecha DESC);
+
+-- Semilla de ejemplo (nombres genéricos, sin historial médico real)
+INSERT INTO medications (id, nombre, notas, momento, activo, orden) VALUES
+  ('antibiotico-a', 'Antibiotico A', NULL, 'manana', true, 10),
+  ('creatina', 'Creatina', NULL, 'manana', true, 20),
+  ('locion-cuero-cabelludo', 'Locion cuero cabelludo', NULL, 'noche', true, 30)
+ON CONFLICT (id) DO NOTHING;
