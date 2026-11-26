@@ -41,6 +41,12 @@
       <div class="card"><h3>Fuera de la búsqueda</h3><p id="fuera"></p></div>
     </div>
     <h2>Necesita tu atención</h2>
+    <form id="addPendiente" class="add-row">
+      <input id="pTitulo" type="text" placeholder="Pendiente o recordatorio" required maxlength="500" autocomplete="off">
+      <input id="pDetalle" type="text" placeholder="Detalle (opcional)" maxlength="500" autocomplete="off">
+      <input id="pEtiqueta" type="text" placeholder="Etiqueta" maxlength="40" autocomplete="off">
+      <button type="submit">Agregar</button>
+    </form>
     <ul id="sec-atencion" class="items"></ul>
     <h2>Listos para enviar <span class="muted small">(necesitan tu sí)</span></h2>
     <ul id="sec-listos" class="items"></ul>

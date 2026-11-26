@@ -109,6 +109,39 @@ function renderBrief() {
   if (!by.ofertas.length) tb.append(el('tr', {}, el('td', { colspan: 7, class: 'muted' }, 'Sin ofertas nuevas que pasen el corte.')));
 }
 
+// ---------- agregar pendiente (items.atencion) ----------
+$('#addPendiente').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!brief) return;
+  const titulo = $('#pTitulo').value.trim();
+  if (!titulo) return;
+  const detalle = $('#pDetalle').value.trim() || null;
+  const etiqueta = $('#pEtiqueta').value.trim() || null;
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  setSync('Agregando…');
+  try {
+    const r = await fetch('/api/item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titulo, detalle, etiqueta }),
+      credentials: 'same-origin',
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    const it = await r.json();
+    brief.items.push(it);
+    e.target.reset();
+    renderBrief();
+    setSync('Agregado');
+    $('#pTitulo').focus();
+  } catch {
+    setSync('No se pudo agregar');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // ---------- tracker (a demanda, cacheado por versión) ----------
 async function loadTracker() {
   if (tracker) return renderTracker();

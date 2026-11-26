@@ -11,7 +11,7 @@ This repository is the source. Pushing it does not change that deployment. Brief
 ## Stack
 
 - Static UI: vanilla JavaScript, HTML, and CSS in `site/`
-- API: Vercel Functions in `site/api` (`brief`, `toggle`, `tracker`, `login`)
+- API: Vercel Functions in `site/api` (`brief`, `toggle`, `item`, `tracker`, `login`)
 - Database: Neon Postgres through `@neondatabase/serverless`
 - Runtime: Node.js 22
 
@@ -61,7 +61,7 @@ cd site
 npx vercel dev
 ```
 
-Open the local URL. The **Brief** tab loads `GET /api/brief`. The **Tracker** tab loads `GET /api/tracker` on demand. Checking an item posts a batch to `POST /api/toggle`.
+Open the local URL. The **Brief** tab loads `GET /api/brief`. Under **Necesita tu atención**, the form posts to `POST /api/item` (creates an `items` row with `seccion = 'atencion'`). Checking an item posts a batch to `POST /api/toggle`. The **Tracker** tab loads `GET /api/tracker` on demand.
 
 Apply the schema yourself against the database you own, for example:
 
