@@ -1402,7 +1402,7 @@ function renderGastosCatTbl() {
         el('span', { class: 'cat-chevron', 'aria-hidden': 'true' }, open ? '▾' : '▸'),
         row.category || 'Sin categoría'),
       el('td', {}, row.currency),
-      el('td', { class: 'amt' }, moneyFmt(row.total, row.currency)),
+      el('td', { class: 'amt ' + (Number(row.total) < 0 ? 'neg' : 'pos') }, moneyFmt(row.total, row.currency)),
       el('td', {}, row.n)));
     if (open) {
       const cached = gastosCatTxCache.get(key);
