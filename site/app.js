@@ -896,7 +896,7 @@ async function loadGastosMov() {
     return;
   }
   const month = $('#gFiltroMes').value;
-  const include = $('#gIncluirExcluidos').checked ? '1' : '0';
+  const include = $('#gIncluirExcluidos')?.classList.contains('on') ? '1' : '0';
   const catVal = $('#gFiltroCategoria')?.value || '';
   const flow = $('#gFiltroFlow')?.value || '';
   const textQ = ($('#gFiltroTexto')?.value || '').trim();
@@ -996,6 +996,7 @@ function renderGastosMovTable() {
     const flags = [];
     if (t.category_source === 'history') flags.push(el('span', { class: 'flag', title: 'Heredada de merchant previo' }, 'hist'));
     if (t.is_excluded) flags.push(el('span', { class: 'flag warn' }, 'excl'));
+    if (t.is_internal_transfer) flags.push(el('span', { class: 'flag warn', title: 'Transferencia interna / cuenta propia' }, 'int'));
     if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'mp'));
     return el('tr', {},
       el('td', {}, String(t.fecha).slice(0, 10)),
@@ -1020,9 +1021,16 @@ function renderGastosMovTable() {
   }));
 }
 
-for (const id of ['#gFiltroCategoria', '#gFiltroFlow', '#gFiltroMes', '#gIncluirExcluidos']) {
+for (const id of ['#gFiltroCategoria', '#gFiltroFlow', '#gFiltroMes']) {
   $(id)?.addEventListener('change', () => { if (gastosSub === 'movimientos') loadGastosMov(); });
 }
+$('#gIncluirExcluidos')?.addEventListener('click', () => {
+  const btn = $('#gIncluirExcluidos');
+  const on = !btn.classList.contains('on');
+  btn.classList.toggle('on', on);
+  btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  if (gastosSub === 'movimientos') loadGastosMov();
+});
 $('#gFiltroTexto')?.addEventListener('input', () => {
   if (gastosSub !== 'movimientos') return;
   clearTimeout(gastosMovSearchTimer);
