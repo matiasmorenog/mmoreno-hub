@@ -612,6 +612,7 @@ function renderGastosPreview() {
   const tb = $('#gastosPreview tbody');
   tb.replaceChildren(...gastosPreview.txs.slice(0, 200).map((t) => {
     const flags = [];
+    if (t.category_source === 'hourly') flags.push(el('span', { class: 'flag hora' }, 'auto/hora'));
     if (t.is_internal_transfer) flags.push(el('span', { class: 'flag' }, 'interna'));
     if (t.is_excluded) flags.push(el('span', { class: 'flag warn' }, 'excluida'));
     if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'merpago'));
@@ -727,9 +728,11 @@ async function loadGastosMov() {
   const account_id = $('#gFiltroCuenta').value;
   const month = $('#gFiltroMes').value;
   const include = $('#gIncluirExcluidos').checked ? '1' : '0';
+  const hourAuto = $('#gSoloHoraAuto')?.checked ? '1' : '0';
   const qs = new URLSearchParams({ view: 'movimientos', include_excluded: include });
   if (account_id) qs.set('account_id', account_id);
   if (month) qs.set('month', month);
+  if (hourAuto === '1') qs.set('hour_auto', '1');
   setSync('Cargando movimientos…');
   const r = await fetch('/api/gastos?' + qs, { credentials: 'same-origin' });
   if (r.status === 401) return showLogin();
@@ -753,15 +756,20 @@ async function loadGastosMov() {
         if (!r2.ok) { setSync('Error'); return; }
         const out = await r2.json();
         t.category_id = out.category_id;
+        t.category_source = out.category_source;
         if (out.learned_rule) {
           setSync(`Guardado · regla “${out.learned_rule.pattern}”` + (out.propagated ? ` · +${out.propagated} iguales` : ''));
           await loadGastosMeta(true);
           if (out.propagated) loadGastosMov();
-        } else setSync('Guardado');
+        } else {
+          setSync('Guardado');
+          loadGastosMov();
+        }
       },
     }, el('option', { value: '' }, '—'));
     for (const c of cats) sel.append(el('option', { value: c.id, selected: c.id === t.category_id }, c.nombre));
     const flags = [];
+    if (t.category_source === 'hourly') flags.push(el('span', { class: 'flag hora', title: 'Clasificada por horario 00–07:59' }, 'auto/hora'));
     if (t.is_excluded) flags.push(el('span', { class: 'flag warn' }, 'excl'));
     if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'mp'));
     return el('tr', {},
@@ -787,7 +795,7 @@ async function loadGastosMov() {
   }));
   setSync('');
 }
-for (const id of ['#gFiltroCuenta', '#gFiltroMes', '#gIncluirExcluidos']) {
+for (const id of ['#gFiltroCuenta', '#gFiltroMes', '#gIncluirExcluidos', '#gSoloHoraAuto']) {
   $(id)?.addEventListener('change', () => { if (gastosSub === 'movimientos') loadGastosMov(); });
 }
 

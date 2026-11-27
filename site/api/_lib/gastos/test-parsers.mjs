@@ -23,6 +23,10 @@ import {
   CAT_UBER_DIDI,
   CAT_PEAJES,
   CAT_RENDIMIENTOS,
+  CAT_SRC_HOURLY,
+  CAT_SRC_RULE,
+  CAT_SRC_BUILTIN,
+  CAT_SRC_MANUAL,
 } from './rules.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -155,12 +159,19 @@ test('DLOCAL + Rendimientos + night hour builtins', () => {
   const ruled = applyRules(parsed.txs, SEED_RULES);
   const rend = ruled.find((t) => t.tx_type === 'rendimientos');
   assert.equal(rend.category_id, CAT_RENDIMIENTOS);
+  assert.equal(rend.category_source, CAT_SRC_RULE);
   const dlocal = ruled.find((t) => /DLOCAL/i.test(t.descripcion));
   assert.equal(dlocal.category_id, CAT_UBER_DIDI);
+  assert.equal(dlocal.category_source, CAT_SRC_RULE);
   const night = ruled.find((t) => /Night Passenger/i.test(t.descripcion));
   assert.equal(night.category_id, CAT_UBER_DIDI);
+  assert.equal(night.category_source, CAT_SRC_HOURLY);
   const third = ruled.find((t) => /Persona Tercera/i.test(t.descripcion));
   assert.equal(third.category_id, null);
+
+  const builtinsOnly = applyRules(parsed.txs, []);
+  const dlocalBuiltin = builtinsOnly.find((t) => /DLOCAL/i.test(t.descripcion));
+  assert.equal(dlocalBuiltin.category_source, CAT_SRC_BUILTIN);
 });
 
 test('settlement_v2 joins SOURCE_ID to REFERENCE_ID and night Uber from ISO -03', async () => {
@@ -181,15 +192,59 @@ test('settlement_v2 joins SOURCE_ID to REFERENCE_ID and night Uber from ISO -03'
   assert.equal(night.hora_local, 2);
   assert.ok(night.posted_at);
   assert.equal(night.category_id, CAT_UBER_DIDI);
+  assert.equal(night.category_source, CAT_SRC_HOURLY);
   const third = parsed.txs.find((t) => /Persona Tercera/i.test(t.descripcion));
   assert.equal(third.hora_local, 14);
   assert.equal(third.category_id, null);
   const dlocal = parsed.txs.find((t) => /DLOCAL/i.test(t.descripcion));
   assert.equal(dlocal.hora_local, 16);
   assert.equal(dlocal.category_id, CAT_UBER_DIDI);
+  // SEED_RULES match DLOCAL first → rule wins over builtin/hourly
+  assert.equal(dlocal.category_source, CAT_SRC_RULE);
 
   const joinedOnly = joinSettlementTimes(parseMpAccountStatement(account.toString('utf8')).txs, map);
   assert.equal(joinedOnly.joined, 6);
+});
+
+test('merchant rule beats hourly Uber; manual category never overwritten by hourly', () => {
+  const nightTx = {
+    account_id: 'mp_wallet',
+    merchant: 'Night Passenger Demo',
+    descripcion: 'Transferencia recibida Night Passenger Demo',
+    tx_type: 'transferencia_recibida',
+    hora_local: 2,
+    category_id: null,
+    category_source: null,
+    is_excluded: false,
+    is_internal_transfer: false,
+    double_count_guard: false,
+  };
+
+  const byHour = applyRules([nightTx], [])[0];
+  assert.equal(byHour.category_id, CAT_UBER_DIDI);
+  assert.equal(byHour.category_source, CAT_SRC_HOURLY);
+
+  const byRule = applyRules([nightTx], [
+    {
+      id: 'night-comida',
+      pattern: 'Night Passenger',
+      category_id: 'comida',
+      account_id: 'mp_wallet',
+      priority: 10,
+      exclude_expense: false,
+      activo: true,
+    },
+  ])[0];
+  assert.equal(byRule.category_id, 'comida');
+  assert.equal(byRule.category_source, CAT_SRC_RULE);
+
+  const manual = applyRules([{
+    ...nightTx,
+    category_id: 'transporte',
+    category_source: CAT_SRC_MANUAL,
+  }], [])[0];
+  assert.equal(manual.category_id, 'transporte');
+  assert.equal(manual.category_source, CAT_SRC_MANUAL);
 });
 
 test('learnPatternFromTx prefers merchant', () => {

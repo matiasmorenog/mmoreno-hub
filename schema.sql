@@ -193,6 +193,10 @@ CREATE TABLE IF NOT EXISTS transactions (
   amount_ars numeric,
   amount_usd numeric,
   category_id text REFERENCES categories(id) ON DELETE SET NULL,
+  -- How category was set: manual | rule | builtin | hourly. Hourly never overwrites the others.
+  category_source text CHECK (
+    category_source IS NULL OR category_source IN ('manual', 'rule', 'builtin', 'hourly')
+  ),
   is_internal_transfer boolean NOT NULL DEFAULT false,
   is_excluded boolean NOT NULL DEFAULT false,
   double_count_guard boolean NOT NULL DEFAULT false,
@@ -208,9 +212,12 @@ CREATE INDEX IF NOT EXISTS transactions_posted_at_idx ON transactions (posted_at
 CREATE INDEX IF NOT EXISTS transactions_category_idx ON transactions (category_id);
 CREATE INDEX IF NOT EXISTS transactions_excluded_idx ON transactions (is_excluded, fecha DESC);
 
--- Additive for DBs created before posted_at existed:
+-- Additive for DBs created before posted_at / category_source existed:
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS posted_at timestamptz;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS hora_local smallint;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS category_source text;
+CREATE INDEX IF NOT EXISTS transactions_category_source_idx ON transactions (category_source)
+  WHERE category_source IS NOT NULL;
 
 INSERT INTO accounts (id, nombre, tipo, moneda_default, orden) VALUES
   ('mp_wallet', 'Mercado Pago billetera', 'mp_wallet', 'ARS', 10),

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { db, guard, body } from './_lib.js';
-import { learnPatternFromTx } from './_lib/gastos/rules.js';
+import { learnPatternFromTx, CAT_SRC_MANUAL, CAT_SRC_RULE } from './_lib/gastos/rules.js';
 
 function slugId(prefix, nombre) {
   const base =
@@ -125,13 +125,41 @@ async function fetchByCategory(sql, account_id, month) {
     LIMIT 40`;
 }
 
-async function fetchTxs(sql, account_id, month, includeExcluded) {
+async function fetchTxs(sql, account_id, month, includeExcluded, hourAutoOnly) {
+  // neon tagged templates can't build dynamic WHERE easily — branch on filters.
+  if (account_id && month && hourAutoOnly) {
+    return includeExcluded
+      ? sql`
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
+                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
+                 c.nombre AS category_nombre, a.nombre AS account_nombre
+          FROM transactions t
+          LEFT JOIN categories c ON c.id = t.category_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.account_id = ${account_id} AND to_char(t.fecha, 'YYYY-MM') = ${month}
+            AND t.category_source = 'hourly'
+          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
+      : sql`
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
+                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
+                 c.nombre AS category_nombre, a.nombre AS account_nombre
+          FROM transactions t
+          LEFT JOIN categories c ON c.id = t.category_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.account_id = ${account_id} AND to_char(t.fecha, 'YYYY-MM') = ${month}
+            AND t.category_source = 'hourly' AND NOT t.is_excluded
+          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
+  }
   if (account_id && month) {
     return includeExcluded
       ? sql`
           SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
                  t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
           FROM transactions t
@@ -142,7 +170,7 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
       : sql`
           SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
                  t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
           FROM transactions t
@@ -152,12 +180,37 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
             AND NOT t.is_excluded
           ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
   }
+  if (account_id && hourAutoOnly) {
+    return includeExcluded
+      ? sql`
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
+                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
+                 c.nombre AS category_nombre, a.nombre AS account_nombre
+          FROM transactions t
+          LEFT JOIN categories c ON c.id = t.category_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.account_id = ${account_id} AND t.category_source = 'hourly'
+          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
+      : sql`
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
+                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
+                 c.nombre AS category_nombre, a.nombre AS account_nombre
+          FROM transactions t
+          LEFT JOIN categories c ON c.id = t.category_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.account_id = ${account_id} AND t.category_source = 'hourly' AND NOT t.is_excluded
+          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
+  }
   if (account_id) {
     return includeExcluded
       ? sql`
           SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
                  t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
           FROM transactions t
@@ -168,7 +221,7 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
       : sql`
           SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
                  t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
           FROM transactions t
@@ -177,12 +230,37 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
           WHERE t.account_id = ${account_id} AND NOT t.is_excluded
           ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
   }
+  if (month && hourAutoOnly) {
+    return includeExcluded
+      ? sql`
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
+                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
+                 c.nombre AS category_nombre, a.nombre AS account_nombre
+          FROM transactions t
+          LEFT JOIN categories c ON c.id = t.category_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE to_char(t.fecha, 'YYYY-MM') = ${month} AND t.category_source = 'hourly'
+          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
+      : sql`
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
+                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
+                 c.nombre AS category_nombre, a.nombre AS account_nombre
+          FROM transactions t
+          LEFT JOIN categories c ON c.id = t.category_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE to_char(t.fecha, 'YYYY-MM') = ${month} AND t.category_source = 'hourly' AND NOT t.is_excluded
+          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
+  }
   if (month) {
     return includeExcluded
       ? sql`
           SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
                  t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
           FROM transactions t
@@ -193,7 +271,7 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
       : sql`
           SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
                  t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
           FROM transactions t
@@ -202,11 +280,36 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
           WHERE to_char(t.fecha, 'YYYY-MM') = ${month} AND NOT t.is_excluded
           ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
   }
+  if (hourAutoOnly) {
+    return includeExcluded
+      ? sql`
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
+                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
+                 c.nombre AS category_nombre, a.nombre AS account_nombre
+          FROM transactions t
+          LEFT JOIN categories c ON c.id = t.category_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.category_source = 'hourly'
+          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
+      : sql`
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
+                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
+                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
+                 c.nombre AS category_nombre, a.nombre AS account_nombre
+          FROM transactions t
+          LEFT JOIN categories c ON c.id = t.category_id
+          LEFT JOIN accounts a ON a.id = t.account_id
+          WHERE t.category_source = 'hourly' AND NOT t.is_excluded
+          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
+  }
   return includeExcluded
     ? sql`
         SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
                t.descripcion, t.merchant,
-               t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
+               t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
                t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                c.nombre AS category_nombre, a.nombre AS account_nombre
         FROM transactions t
@@ -216,7 +319,7 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
     : sql`
         SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
                t.descripcion, t.merchant,
-               t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
+               t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
                t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                c.nombre AS category_nombre, a.nombre AS account_nombre
         FROM transactions t
@@ -237,6 +340,7 @@ export default async function handler(req, res) {
     const account_id = typeof q.account_id === 'string' && q.account_id ? q.account_id : null;
     const month = typeof q.month === 'string' && /^\d{4}-\d{2}$/.test(q.month) ? q.month : null;
     const includeExcluded = q.include_excluded === '1';
+    const hourAutoOnly = q.hour_auto === '1' || q.category_source === 'hourly';
 
     const [accounts, categories, rules, imports] = await Promise.all([
       sql`SELECT id, nombre, tipo, moneda_default, activo, orden FROM accounts WHERE activo = true ORDER BY orden, id`,
@@ -257,7 +361,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ accounts, categories, rules, imports, resumen, by_category });
     }
 
-    const transactions = await fetchTxs(sql, account_id, month, includeExcluded);
+    const transactions = await fetchTxs(sql, account_id, month, includeExcluded, hourAutoOnly);
     return res.status(200).json({ accounts, categories, rules, imports, transactions });
   }
 
@@ -279,15 +383,20 @@ export default async function handler(req, res) {
       : undefined;
     const learn = b.learn !== false; // default: upsert rule from merchant
 
+    const catSource = hasCat
+      ? (category_id ? CAT_SRC_MANUAL : null)
+      : undefined;
+
     const rows = await sql`
       UPDATE transactions SET
         category_id = CASE WHEN ${hasCat} THEN ${hasCat ? category_id : null} ELSE category_id END,
+        category_source = CASE WHEN ${hasCat} THEN ${hasCat ? catSource : null} ELSE category_source END,
         is_excluded = COALESCE(${is_excluded}, is_excluded),
         is_internal_transfer = COALESCE(${is_internal_transfer}, is_internal_transfer),
         notes = CASE WHEN ${hasNotes} THEN ${hasNotes ? notes : null} ELSE notes END,
         actualizado = now()
       WHERE id = ${id}
-      RETURNING id, account_id, category_id, is_excluded, is_internal_transfer, notes, amount, currency, fecha, merchant, descripcion, tx_type`;
+      RETURNING id, account_id, category_id, category_source, is_excluded, is_internal_transfer, notes, amount, currency, fecha, merchant, descripcion, tx_type`;
     if (!rows.length) return res.status(404).json({ error: 'not_found' });
     const tx = rows[0];
 
@@ -308,15 +417,19 @@ export default async function handler(req, res) {
             activo = true
           RETURNING id, pattern, category_id, account_id, priority, exclude_expense, activo`;
         learned = ruleRows[0] || null;
-        // Apply to uncategorized existing matches on same account (ILIKE substring).
+        // Apply to uncategorized OR hourly-auto matches — never overwrite other manual/rule.
         const like = `%${pattern}%`;
         const prop = await sql`
           UPDATE transactions SET
             category_id = ${category_id},
+            category_source = ${CAT_SRC_RULE},
             actualizado = now()
           WHERE account_id = ${tx.account_id}
             AND id <> ${tx.id}
-            AND category_id IS NULL
+            AND (
+              category_id IS NULL
+              OR category_source = 'hourly'
+            )
             AND (
               merchant ILIKE ${like}
               OR descripcion ILIKE ${like}

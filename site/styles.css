@@ -78,5 +78,6 @@ details p{margin-top:8px!important;color:var(--mu);font-size:14px}
 .flag{font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid var(--bd);color:var(--mu);margin-right:4px}
 .flag.warn{color:var(--warn);border-color:currentColor}
 .flag.guard{color:var(--bad);border-color:currentColor}
+.flag.hora{color:var(--ac);border-color:currentColor}
 #gastosPreview td,#gastosMov td,#gastosResumenTbl td,#gastosCatTbl td{font-size:13px}
 #gastosUpload input[type=file]{flex:2;min-width:200px}

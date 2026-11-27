@@ -2,7 +2,7 @@ import { db, guard, body } from './_lib.js';
 import { parseExpenseFile } from './_lib/gastos/parse.js';
 import { newId } from './_lib/gastos/fingerprint.js';
 import { detectMpSettlement, parseMpSettlement } from './_lib/gastos/mp-settlement.js';
-import { CAT_UBER_DIDI } from './_lib/gastos/rules.js';
+import { CAT_UBER_DIDI, CAT_SRC_HOURLY, CAT_SRC_BUILTIN, CAT_SRC_MANUAL } from './_lib/gastos/rules.js';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '6mb' } },
@@ -30,6 +30,7 @@ function previewTx(t) {
     amount_ars: t.amount_ars,
     amount_usd: t.amount_usd,
     category_id: t.category_id,
+    category_source: t.category_source || null,
     is_internal_transfer: !!t.is_internal_transfer,
     is_excluded: !!t.is_excluded,
     double_count_guard: !!t.double_count_guard,
@@ -49,18 +50,25 @@ function decodeB64(b64) {
 
 async function upsertTx(sql, importId, t, overrides) {
   const o = overrides.get(t.fingerprint) || {};
-  const category_id = o.category_id !== undefined ? o.category_id : t.category_id;
+  let category_id = o.category_id !== undefined ? o.category_id : t.category_id;
+  let category_source = o.category_source !== undefined
+    ? o.category_source
+    : (t.category_source || null);
+  if (o.category_id !== undefined) {
+    category_source = o.category_source || CAT_SRC_MANUAL;
+  }
   const is_excluded = o.is_excluded !== undefined ? !!o.is_excluded : !!t.is_excluded;
   const is_internal_transfer =
     o.is_internal_transfer !== undefined ? !!o.is_internal_transfer : !!t.is_internal_transfer;
   const id = newId('tx');
   const posted_at = t.posted_at || null;
   const hora_local = t.hora_local ?? null;
+  // Existing category (manual/rule/builtin) always wins over re-import auto (incl. hourly).
   const rows = await sql`
     INSERT INTO transactions (
       id, account_id, import_id, fingerprint, fecha, posted_at, hora_local,
       descripcion, merchant, tx_type,
-      amount, currency, amount_ars, amount_usd, category_id,
+      amount, currency, amount_ars, amount_usd, category_id, category_source,
       is_internal_transfer, is_excluded, double_count_guard, raw
     ) VALUES (
       ${id},
@@ -78,6 +86,7 @@ async function upsertTx(sql, importId, t, overrides) {
       ${t.amount_ars},
       ${t.amount_usd},
       ${category_id},
+      ${category_source},
       ${is_internal_transfer},
       ${is_excluded},
       ${!!t.double_count_guard},
@@ -95,7 +104,11 @@ async function upsertTx(sql, importId, t, overrides) {
       currency = EXCLUDED.currency,
       amount_ars = EXCLUDED.amount_ars,
       amount_usd = EXCLUDED.amount_usd,
-      category_id = COALESCE(EXCLUDED.category_id, transactions.category_id),
+      category_id = COALESCE(transactions.category_id, EXCLUDED.category_id),
+      category_source = CASE
+        WHEN transactions.category_id IS NOT NULL THEN transactions.category_source
+        ELSE EXCLUDED.category_source
+      END,
       is_internal_transfer = EXCLUDED.is_internal_transfer,
       is_excluded = EXCLUDED.is_excluded,
       double_count_guard = EXCLUDED.double_count_guard,
@@ -132,27 +145,30 @@ async function enrichFromSettlement(sql, settlementText) {
     if (!rows.length) continue;
     timed += rows.length;
     for (const row of rows) {
+      // Manual/rule/builtin categories never overwritten on reprocess.
+      if (row.category_id) continue;
       const hay = `${row.merchant || ''} ${row.descripcion || ''}`.toLowerCase();
       const isRecibida = row.tx_type === 'transferencia_recibida';
+      if (!isRecibida) continue;
       const isDlocal = /dlocal/i.test(hay);
       const isNight = hora != null && hora >= 0 && hora < 8;
-      const wantUber = isRecibida && (isDlocal || isNight);
-      if (!wantUber) continue;
-      if (row.category_id && row.category_id !== CAT_UBER_DIDI) continue;
-      if (row.category_id === CAT_UBER_DIDI) continue;
+      if (!isDlocal && !isNight) continue;
+      const source = isDlocal ? CAT_SRC_BUILTIN : CAT_SRC_HOURLY;
       const upd = await sql`
         UPDATE transactions SET
           category_id = ${CAT_UBER_DIDI},
+          category_source = ${source},
           actualizado = now()
         WHERE id = ${row.id} AND category_id IS NULL
         RETURNING id`;
       if (upd.length) reclassified += 1;
     }
   }
-  // Also: night already timed previously but category still null
+  // Night already timed / null category only — never touch manual/rule.
   const nightBackfill = await sql`
     UPDATE transactions SET
       category_id = ${CAT_UBER_DIDI},
+      category_source = ${CAT_SRC_HOURLY},
       actualizado = now()
     WHERE account_id = 'mp_wallet'
       AND tx_type = 'transferencia_recibida'
@@ -165,6 +181,7 @@ async function enrichFromSettlement(sql, settlementText) {
   const dlocalBackfill = await sql`
     UPDATE transactions SET
       category_id = ${CAT_UBER_DIDI},
+      category_source = ${CAT_SRC_BUILTIN},
       actualizado = now()
     WHERE account_id = 'mp_wallet'
       AND tx_type = 'transferencia_recibida'

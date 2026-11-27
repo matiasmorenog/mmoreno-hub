@@ -99,6 +99,7 @@ export function parseMpAccountStatement(text, { account_id = 'mp_wallet' } = {})
       is_excluded: isOwn,
       double_count_guard: false,
       category_id: isOwn ? 'transferencias' : null,
+      category_source: isOwn ? 'builtin' : null,
       raw: {
         reference_id: ref,
         partial_balance: parseArAmount(parts[4]),
