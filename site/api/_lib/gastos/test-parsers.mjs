@@ -11,16 +11,28 @@ import {
   parseSantanderCardText,
 } from './santander-card.js';
 import { detectMpCardPdf, parseMpCardText } from './mp-card.js';
-import { applyRules } from './rules.js';
+import {
+  applyRules,
+  learnPatternFromTx,
+  CAT_UBER_DIDI,
+  CAT_PEAJES,
+  CAT_RENDIMIENTOS,
+} from './rules.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.join(dir, 'fixtures');
+
+const SEED_RULES = [
+  { id: 'mp-dlocal-uber-didi', pattern: 'DLOCAL', category_id: CAT_UBER_DIDI, account_id: 'mp_wallet', priority: 8, exclude_expense: false, activo: true },
+  { id: 'mp-rendimientos', pattern: 'Rendimientos', category_id: CAT_RENDIMIENTOS, account_id: 'mp_wallet', priority: 9, exclude_expense: false, activo: true },
+  { id: 'amex-peaje-ausol', pattern: 'ausol', category_id: CAT_PEAJES, account_id: 'santander_amex', priority: 6, exclude_expense: false, activo: true },
+];
 
 test('mp account_statement parses summary and own transfer exclude', () => {
   const csv = fs.readFileSync(path.join(fixtures, 'mp-account-sample.csv'), 'utf8');
   const parsed = parseMpAccountStatement(csv);
   assert.equal(parsed.source_format, 'mp_account_statement');
-  assert.equal(parsed.txs.length, 4);
+  assert.equal(parsed.txs.length, 6);
   assert.equal(parsed.summary.balance_check_ok, true);
   const own = parsed.txs.find((t) => /Moreno Matias/i.test(t.descripcion));
   assert.ok(own);
@@ -31,6 +43,8 @@ test('mp account_statement parses summary and own transfer exclude', () => {
   assert.equal(third.is_excluded, false);
   const qr = parsed.txs.find((t) => t.tx_type === 'pago_qr');
   assert.equal(qr.merchant, 'Cafe Demo');
+  const night = parsed.txs.find((t) => /Night Passenger/i.test(t.descripcion));
+  assert.equal(night.hora_local, 7);
 });
 
 test('santander caja xlsx synthetic', () => {
@@ -53,27 +67,43 @@ test('santander caja xlsx synthetic', () => {
   assert.equal(parsed.txs[2].amount, -3.5);
 });
 
-test('santander amex merpago double-count guard', () => {
+test('santander amex merpago double-count guard + peajes', () => {
   const text = fs.readFileSync(path.join(fixtures, 'santander-card-sample.txt'), 'utf8');
   const parsed = parseSantanderCardText(text, {
     account_id: 'santander_amex',
     source_format: 'santander_amex_pdf',
   });
   assert.ok(parsed.txs.length >= 2);
-  const mer = parsed.txs.find((t) => /Merpago/i.test(t.descripcion));
+  const ruled = applyRules(parsed.txs, SEED_RULES);
+  const mer = ruled.find((t) => /Merpago/i.test(t.descripcion));
   assert.ok(mer);
   assert.equal(mer.double_count_guard, true);
   assert.equal(mer.is_excluded, true);
-  const cafe = parsed.txs.find((t) => /Cafe Demo/i.test(t.descripcion));
+  // Fixture uses Merpago*DemoStore — not a toll; peajes only for ausol/etc.
+  const cafe = ruled.find((t) => /Cafe Demo/i.test(t.descripcion));
   assert.ok(cafe);
   assert.equal(cafe.is_excluded, false);
+
+  const toll = applyRules(
+    [{
+      account_id: 'santander_amex',
+      merchant: 'Merpago*ausol',
+      descripcion: 'Merpago*ausol',
+      tx_type: 'consumo_tarjeta',
+      category_id: null,
+      is_excluded: false,
+      double_count_guard: false,
+    }],
+    SEED_RULES,
+  )[0];
+  assert.equal(toll.category_id, CAT_PEAJES);
+  assert.equal(toll.double_count_guard, true);
 });
 
 test('mp card print-pdf emits one tx per kind pair, skips summary totals', () => {
   const text = fs.readFileSync(path.join(fixtures, 'mp-card-sample.txt'), 'utf8');
   assert.equal(detectMpCardPdf(text), true);
   const parsed = parseMpCardText(text, { yearHint: 2026 });
-  // 4 kind-backed rows; the naked "Saldo $ 999.999,00" must NOT become a tx
   assert.equal(parsed.txs.length, 4);
   assert.ok(!parsed.txs.some((t) => Math.abs(t.amount) === 999999));
   assert.ok(parsed.warnings.includes('mp_card_print_pdf_fragile'));
@@ -96,7 +126,6 @@ test('per-row rules: different merchants get different categories; Consumo rule 
   assert.ok(parsed.txs.length >= 3);
 
   const ruled = applyRules(parsed.txs, [
-    // Broad trap: used to match every row via tx_type "consumo"
     { id: 'trap-consumo', pattern: 'Consumo', category_id: 'comida', account_id: null, priority: 50, exclude_expense: false, activo: true },
     { id: 'ypf', pattern: 'YPF', category_id: 'transporte', account_id: null, priority: 10, exclude_expense: false, activo: true },
     { id: 'cafe', pattern: 'Cafe', category_id: 'comida', account_id: null, priority: 10, exclude_expense: false, activo: true },
@@ -107,13 +136,36 @@ test('per-row rules: different merchants get different categories; Consumo rule 
   assert.equal(byMerchant['Cafe Demo'], 'comida');
   assert.equal(byMerchant['YPF Demo'], 'transporte');
   assert.equal(byMerchant['Cloud Demo'], 'suscripciones');
-  // Refund Demo: no merchant rule; "Consumo" must NOT match via tx_type/descripcion prefix alone
   const refund = ruled.find((t) => /Refund Demo/i.test(t.merchant));
   assert.ok(refund);
   assert.equal(refund.category_id, null);
-
   const cats = new Set(ruled.map((t) => t.category_id).filter(Boolean));
-  assert.ok(cats.size >= 3, 'expected multiple distinct categories in one statement');
+  assert.ok(cats.size >= 3);
+});
+
+test('DLOCAL + Rendimientos + night hour builtins', () => {
+  const csv = fs.readFileSync(path.join(fixtures, 'mp-account-sample.csv'), 'utf8');
+  const parsed = parseMpAccountStatement(csv);
+  const ruled = applyRules(parsed.txs, SEED_RULES);
+  const rend = ruled.find((t) => t.tx_type === 'rendimientos');
+  assert.equal(rend.category_id, CAT_RENDIMIENTOS);
+  const dlocal = ruled.find((t) => /DLOCAL/i.test(t.descripcion));
+  assert.equal(dlocal.category_id, CAT_UBER_DIDI);
+  const night = ruled.find((t) => /Night Passenger/i.test(t.descripcion));
+  assert.equal(night.category_id, CAT_UBER_DIDI);
+  const third = ruled.find((t) => /Persona Tercera/i.test(t.descripcion));
+  assert.equal(third.category_id, null);
+});
+
+test('learnPatternFromTx prefers merchant', () => {
+  assert.equal(
+    learnPatternFromTx({ merchant: 'Cafe Demo SA', descripcion: 'Pago con QR Cafe Demo SA' }),
+    'Cafe Demo SA',
+  );
+  assert.equal(
+    learnPatternFromTx({ merchant: null, descripcion: 'Transferencia recibida Demo Corp' }),
+    'Demo Corp',
+  );
 });
 
 test('applyRules category pattern on wallet row', () => {

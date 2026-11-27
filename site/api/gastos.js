@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { db, guard, body } from './_lib.js';
+import { learnPatternFromTx } from './_lib/gastos/rules.js';
 
 function slugId(prefix, nombre) {
   const base =
@@ -11,6 +12,18 @@ function slugId(prefix, nombre) {
       .replace(/^-+|-+$/g, '')
       .slice(0, 40) || 'x';
   return `${prefix}_${base}_${crypto.randomBytes(2).toString('hex')}`;
+}
+
+function learnedRuleId(accountId, pattern) {
+  const h = crypto.createHash('sha256').update(`${accountId || ''}|${pattern.toLowerCase()}`).digest('hex').slice(0, 12);
+  const slug = String(pattern)
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 24) || 'm';
+  return `learned_${slug}_${h}`.slice(0, 100);
 }
 
 async function fetchResumen(sql, account_id, month) {
@@ -256,6 +269,7 @@ export default async function handler(req, res) {
     const notes = hasNotes
       ? (typeof b.notes === 'string' ? b.notes.trim().slice(0, 2000) || null : null)
       : undefined;
+    const learn = b.learn !== false; // default: upsert rule from merchant
 
     const rows = await sql`
       UPDATE transactions SET
@@ -265,9 +279,46 @@ export default async function handler(req, res) {
         notes = CASE WHEN ${hasNotes} THEN ${hasNotes ? notes : null} ELSE notes END,
         actualizado = now()
       WHERE id = ${id}
-      RETURNING id, account_id, category_id, is_excluded, is_internal_transfer, notes, amount, currency, fecha, merchant, descripcion`;
+      RETURNING id, account_id, category_id, is_excluded, is_internal_transfer, notes, amount, currency, fecha, merchant, descripcion, tx_type`;
     if (!rows.length) return res.status(404).json({ error: 'not_found' });
-    return res.status(200).json(rows[0]);
+    const tx = rows[0];
+
+    let learned = null;
+    let propagated = 0;
+    if (learn && hasCat && category_id) {
+      const pattern = learnPatternFromTx(tx);
+      if (pattern && pattern.length >= 3) {
+        const ruleId = learnedRuleId(tx.account_id, pattern);
+        const ruleRows = await sql`
+          INSERT INTO category_rules (id, pattern, category_id, account_id, priority, exclude_expense, activo)
+          VALUES (${ruleId}, ${pattern}, ${category_id}, ${tx.account_id}, 40, false, true)
+          ON CONFLICT (id) DO UPDATE SET
+            pattern = EXCLUDED.pattern,
+            category_id = EXCLUDED.category_id,
+            account_id = EXCLUDED.account_id,
+            actualizado = now(),
+            activo = true
+          RETURNING id, pattern, category_id, account_id, priority, exclude_expense, activo`;
+        learned = ruleRows[0] || null;
+        // Apply to uncategorized existing matches on same account (ILIKE substring).
+        const like = `%${pattern}%`;
+        const prop = await sql`
+          UPDATE transactions SET
+            category_id = ${category_id},
+            actualizado = now()
+          WHERE account_id = ${tx.account_id}
+            AND id <> ${tx.id}
+            AND category_id IS NULL
+            AND (
+              merchant ILIKE ${like}
+              OR descripcion ILIKE ${like}
+            )
+          RETURNING id`;
+        propagated = prop.length;
+      }
+    }
+
+    return res.status(200).json({ ...tx, learned_rule: learned, propagated });
   }
 
   if (req.method === 'POST') {

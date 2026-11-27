@@ -219,13 +219,24 @@ INSERT INTO categories (id, nombre, orden) VALUES
   ('transferencias', 'Transferencias', 50),
   ('impuestos', 'Impuestos', 60),
   ('ingresos', 'Ingresos', 70),
+  ('ingresos-uber-didi', 'Ingresos Uber/DiDi driver', 75),
+  ('rendimientos', 'Rendimientos', 78),
   ('reintegros', 'Reintegros', 80),
+  ('peajes', 'Peajes', 85),
   ('otros', 'Otros', 90)
 ON CONFLICT (id) DO NOTHING;
 
 -- Own-account transfer patterns (exclude from spend). Third-party transfers stay categorizable.
+-- DLOCAL = DiDi/Uber driver income on MP wallet. Peajes = Amex Merpago* toll operators.
+-- Rendimientos = MP remunerated-account interest.
 INSERT INTO category_rules (id, pattern, category_id, account_id, priority, exclude_expense, activo) VALUES
   ('own-mp-moreno-matias', 'Moreno Matias', 'transferencias', 'mp_wallet', 10, true, true),
   ('own-mp-moreno-upper', 'MORENO MATIAS', 'transferencias', 'mp_wallet', 10, true, true),
-  ('guard-amex-merpago', 'Merpago', NULL, 'santander_amex', 5, true, true)
+  ('guard-amex-merpago', 'Merpago', NULL, 'santander_amex', 5, true, true),
+  ('mp-dlocal-uber-didi', 'DLOCAL', 'ingresos-uber-didi', 'mp_wallet', 8, false, true),
+  ('mp-rendimientos', 'Rendimientos', 'rendimientos', 'mp_wallet', 9, false, true),
+  ('amex-peaje-ausol', 'ausol', 'peajes', 'santander_amex', 6, false, true),
+  ('amex-peaje-auoeste', 'auoeste', 'peajes', 'santander_amex', 6, false, true),
+  ('amex-peaje-aubasa', 'aubasa', 'peajes', 'santander_amex', 6, false, true),
+  ('amex-peaje-ausa', 'ausa', 'peajes', 'santander_amex', 7, false, true)
 ON CONFLICT (id) DO NOTHING;

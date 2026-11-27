@@ -96,40 +96,13 @@
 
   <section id="view-gastos" hidden>
     <nav class="subtabs" id="gastosSubtabs" role="tablist" aria-label="Gastos">
-      <button type="button" data-gview="importar" class="on">Importar</button>
-      <button type="button" data-gview="movimientos">Movimientos</button>
+      <button type="button" data-gview="movimientos" class="on">Movimientos</button>
       <button type="button" data-gview="reglas">Reglas</button>
       <button type="button" data-gview="resumen">Resumen</button>
+      <button type="button" data-gview="importar">Importar</button>
     </nav>
 
-    <div id="gastos-importar">
-      <p class="muted">Subí CSV MP billetera, XLSX Santander caja, o PDF (MP tarjeta / Visa / Amex). El archivo se hashea; si ya se confirmó, no se duplica.</p>
-      <form id="gastosUpload" class="add-row">
-        <input id="gFile" type="file" accept=".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
-        <select id="gAccountHint" aria-label="Cuenta (opcional)">
-          <option value="">Detectar cuenta</option>
-          <option value="mp_wallet">MP billetera</option>
-          <option value="mp_card">MP tarjeta</option>
-          <option value="santander_caja">Santander caja</option>
-          <option value="santander_visa">Santander Visa</option>
-          <option value="santander_amex">Santander Amex</option>
-        </select>
-        <button type="submit">Vista previa</button>
-      </form>
-      <p id="gastosImportMeta" class="muted"></p>
-      <div id="gastosPreviewWrap" hidden>
-        <div class="shop-bought-head">
-          <h2>Vista previa</h2>
-          <button type="button" id="gastosConfirm" class="add-row" style="padding:7px 14px;border:0;border-radius:8px;background:var(--ac);color:#fff;cursor:pointer">Confirmar import</button>
-        </div>
-        <div class="tablewrap"><table class="tbl" id="gastosPreview">
-          <thead><tr><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Moneda</th><th>Flags</th></tr></thead>
-          <tbody></tbody>
-        </table></div>
-      </div>
-    </div>
-
-    <div id="gastos-movimientos" hidden>
+    <div id="gastos-movimientos">
       <div class="filters">
         <select id="gFiltroCuenta"><option value="">Todas las cuentas</option></select>
         <input id="gFiltroMes" type="month" aria-label="Mes">
@@ -143,6 +116,14 @@
     </div>
 
     <div id="gastos-reglas" hidden>
+      <h2>Categorías</h2>
+      <form id="addCategoria" class="add-row">
+        <input id="cNombre" type="text" placeholder="Nueva categoría" required maxlength="80" autocomplete="off">
+        <button type="submit">Crear categoría</button>
+      </form>
+      <ul id="gastosCats" class="items"></ul>
+      <h2>Reglas</h2>
+      <p class="muted small">Al categorizar un movimiento a mano se crea una regla por merchant para próximas importaciones.</p>
       <form id="addRegla" class="add-row">
         <input id="rPattern" type="text" placeholder="Texto a buscar (merchant/desc)" required maxlength="200" autocomplete="off">
         <select id="rCategory"><option value="">Sin categoría</option></select>
@@ -169,6 +150,33 @@
         <thead><tr><th>Categoría</th><th>Moneda</th><th>Total</th><th>N</th></tr></thead>
         <tbody></tbody>
       </table></div>
+    </div>
+
+    <div id="gastos-importar" hidden>
+      <p class="muted">Subí CSV MP billetera, XLSX Santander caja, o PDF (MP tarjeta / Visa / Amex). El archivo se hashea; si ya se confirmó, no se duplica.</p>
+      <form id="gastosUpload" class="add-row">
+        <input id="gFile" type="file" accept=".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+        <select id="gAccountHint" aria-label="Cuenta (opcional)">
+          <option value="">Detectar cuenta</option>
+          <option value="mp_wallet">MP billetera</option>
+          <option value="mp_card">MP tarjeta</option>
+          <option value="santander_caja">Santander caja</option>
+          <option value="santander_visa">Santander Visa</option>
+          <option value="santander_amex">Santander Amex</option>
+        </select>
+        <button type="submit">Vista previa</button>
+      </form>
+      <p id="gastosImportMeta" class="muted"></p>
+      <div id="gastosPreviewWrap" hidden>
+        <div class="shop-bought-head">
+          <h2>Vista previa</h2>
+          <button type="button" id="gastosConfirm" class="add-row" style="padding:7px 14px;border:0;border-radius:8px;background:var(--ac);color:#fff;cursor:pointer">Confirmar import</button>
+        </div>
+        <div class="tablewrap"><table class="tbl" id="gastosPreview">
+          <thead><tr><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Moneda</th><th>Flags</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
     </div>
   </section>
 

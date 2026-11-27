@@ -29,10 +29,18 @@ function parseType(raw) {
   return { tx_type: 'otro', merchant: s || null };
 }
 
-function parseDate(ddmmyyyy) {
-  const m = String(ddmmyyyy).trim().match(/^(\d{2})-(\d{2})-(\d{4})$/);
+/** Parse DD-MM-YYYY or DD-MM-YYYY HH:MM[:SS] (America/Argentina wall time if present). */
+function parseDateTime(raw) {
+  const s = String(raw || '').trim();
+  const m = s.match(/^(\d{2})-(\d{2})-(\d{4})(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
   if (!m) return null;
-  return `${m[3]}-${m[2]}-${m[1]}`;
+  const fecha = `${m[3]}-${m[2]}-${m[1]}`;
+  let hora_local = null;
+  if (m[4] != null) {
+    const h = Number(m[4]);
+    if (Number.isFinite(h) && h >= 0 && h <= 23) hora_local = h;
+  }
+  return { fecha, hora_local };
 }
 
 /**
@@ -62,8 +70,9 @@ export function parseMpAccountStatement(text, { account_id = 'mp_wallet' } = {})
   for (let i = hdrIdx + 1; i < lines.length; i++) {
     const parts = lines[i].split(';');
     if (parts.length < 4) continue;
-    const fecha = parseDate(parts[0]);
-    if (!fecha) continue;
+    const dt = parseDateTime(parts[0]);
+    if (!dt) continue;
+    const { fecha, hora_local } = dt;
     const amount = parseArAmount(parts[3]);
     if (amount == null) continue;
     const ref = (parts[2] || '').trim();
@@ -78,6 +87,7 @@ export function parseMpAccountStatement(text, { account_id = 'mp_wallet' } = {})
       account_id,
       fingerprint: fp,
       fecha,
+      hora_local,
       descripcion,
       merchant,
       tx_type,
@@ -89,7 +99,12 @@ export function parseMpAccountStatement(text, { account_id = 'mp_wallet' } = {})
       is_excluded: isOwn,
       double_count_guard: false,
       category_id: isOwn ? 'transferencias' : null,
-      raw: { reference_id: ref, partial_balance: parseArAmount(parts[4]) },
+      raw: {
+        reference_id: ref,
+        partial_balance: parseArAmount(parts[4]),
+        hora_local,
+        release_raw: String(parts[0] || '').trim(),
+      },
     });
   }
 

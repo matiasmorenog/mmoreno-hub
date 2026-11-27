@@ -8,7 +8,23 @@ const LS = {
 const DEBOUNCE_MS = 2500;
 const RECENT_MS = 5 * 60 * 1000; // superpone tildes confirmadas sobre un GET cacheado
 let brief = null, timer = null, tracker = null, meds = null, medTimer = null, shopping = null, shopTimer = null;
-let gastos = null, gastosPreview = null, gastosFileB64 = null, gastosFileName = null, gastosSub = 'importar';
+let gastos = null, gastosPreview = null, gastosFileB64 = null, gastosFileName = null, gastosSub = 'movimientos';
+function currentMonthAR() {
+  // YYYY-MM in America/Argentina/Buenos_Aires
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date());
+  const y = parts.find((p) => p.type === 'year')?.value;
+  const m = parts.find((p) => p.type === 'month')?.value;
+  return `${y}-${m}`;
+}
+function ensureGastosMonthDefaults() {
+  const cur = currentMonthAR();
+  if ($('#gFiltroMes') && !$('#gFiltroMes').value) $('#gFiltroMes').value = cur;
+  if ($('#gResMes') && !$('#gResMes').value) $('#gResMes').value = cur;
+}
 const MOMENTO_LABEL = { manana: 'Mañana', mediodia: 'Mediodía', noche: 'Noche' };
 
 function el(tag, attrs = {}, ...kids) {
@@ -524,13 +540,14 @@ function fillAccountSelects() {
 }
 function showGastosSub(sub) {
   gastosSub = sub;
-  for (const s of ['importar', 'movimientos', 'reglas', 'resumen']) {
+  ensureGastosMonthDefaults();
+  for (const s of ['movimientos', 'reglas', 'resumen', 'importar']) {
     const n = $('#gastos-' + s);
     if (n) n.hidden = s !== sub;
   }
   document.querySelectorAll('#gastosSubtabs button').forEach((b) => b.classList.toggle('on', b.dataset.gview === sub));
   if (sub === 'movimientos') loadGastosMov();
-  if (sub === 'reglas') renderGastosRules();
+  if (sub === 'reglas') { renderGastosCats(); renderGastosRules(); }
   if (sub === 'resumen') loadGastosResumen();
 }
 document.querySelectorAll('#gastosSubtabs button').forEach((b) => b.addEventListener('click', () => showGastosSub(b.dataset.gview)));
@@ -682,9 +699,16 @@ async function loadGastosMov() {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify({ id: t.id, category_id: e.target.value || null }),
+          body: JSON.stringify({ id: t.id, category_id: e.target.value || null, learn: true }),
         });
-        setSync(r2.ok ? 'Guardado' : 'Error');
+        if (!r2.ok) { setSync('Error'); return; }
+        const out = await r2.json();
+        t.category_id = out.category_id;
+        if (out.learned_rule) {
+          setSync(`Guardado · regla “${out.learned_rule.pattern}”` + (out.propagated ? ` · +${out.propagated} iguales` : ''));
+          await loadGastosMeta(true);
+          if (out.propagated) loadGastosMov();
+        } else setSync('Guardado');
       },
     }, el('option', { value: '' }, '—'));
     for (const c of cats) sel.append(el('option', { value: c.id, selected: c.id === t.category_id }, c.nombre));
@@ -705,7 +729,7 @@ async function loadGastosMov() {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
-            body: JSON.stringify({ id: t.id, is_excluded: !t.is_excluded }),
+            body: JSON.stringify({ id: t.id, is_excluded: !t.is_excluded, learn: false }),
           });
           if (r2.ok) loadGastosMov();
         },
@@ -717,6 +741,17 @@ for (const id of ['#gFiltroCuenta', '#gFiltroMes', '#gIncluirExcluidos']) {
   $(id)?.addEventListener('change', () => { if (gastosSub === 'movimientos') loadGastosMov(); });
 }
 
+function renderGastosCats() {
+  if (!gastos) return;
+  const ul = $('#gastosCats');
+  if (!ul) return;
+  const cats = gastos.categories || [];
+  ul.replaceChildren(...cats.map((c) => el('li', {},
+    el('div', { class: 'body' },
+      el('div', { class: 't' }, c.nombre),
+      el('div', { class: 'd id' }, c.id))));
+  if (!cats.length) ul.append(el('li', { class: 'muted' }, 'Sin categorías.'));
+}
 function renderGastosRules() {
   if (!gastos) return;
   const ul = $('#gastosRules');
@@ -746,6 +781,29 @@ function renderGastosRules() {
     }))));
   if (!rules.length) ul.append(el('li', { class: 'muted' }, 'Sin reglas todavía.'));
 }
+$('#addCategoria')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nombre = $('#cNombre').value.trim();
+  if (!nombre) return;
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/gastos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ entity: 'category', nombre }),
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    e.target.reset();
+    await loadGastosMeta(true);
+    renderGastosCats();
+    fillAccountSelects();
+    setSync('Categoría creada');
+  } catch { setSync('No se pudo crear categoría'); }
+  finally { btn.disabled = false; }
+});
 $('#addRegla').addEventListener('submit', async (e) => {
   e.preventDefault();
   const pattern = $('#rPattern').value.trim();
