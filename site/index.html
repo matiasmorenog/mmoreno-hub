@@ -68,10 +68,12 @@
     <ul id="medHoyList" class="items"></ul>
     <h2>Catálogo</h2>
     <form id="addMed" class="add-row">
+      <input type="hidden" id="mEditId" value="">
       <input id="mNombre" type="text" placeholder="Nombre" required maxlength="200" autocomplete="off">
       <input id="mNotas" type="text" placeholder="Notas (opcional)" maxlength="500" autocomplete="off">
       <input id="mMomento" type="text" placeholder="Momento (ej. mañana, 8am)" maxlength="40" autocomplete="off" aria-label="Momento del día">
-      <button type="submit">Agregar</button>
+      <button type="submit" id="mSubmit">Agregar</button>
+      <button type="button" id="mCancelEdit" class="ghost" hidden>Cancelar</button>
     </form>
     <ul id="medCatalog" class="items"></ul>
   </section>
