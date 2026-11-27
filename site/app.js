@@ -823,12 +823,19 @@ async function loadGastosMov() {
   tb.replaceChildren(...(data.transactions || []).map((t) => {
     const sel = el('select', {
       onchange: async (e) => {
+        const category_id = e.target.value || null;
+        let learn = false;
+        if (category_id) {
+          const label = String(t.merchant || t.descripcion || 'este movimiento').trim().slice(0, 80);
+          // OK = regla siempre; Cancel = solo este movimiento (útil en transferencias a personas)
+          learn = confirm(`¿Aplicar siempre a «${label}»?\n\nAceptar = crear regla para futuros iguales.\nCancelar = solo este movimiento.`);
+        }
         setSync('Guardando…');
         const r2 = await fetch('/api/gastos', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'same-origin',
-          body: JSON.stringify({ id: t.id, category_id: e.target.value || null, learn: true }),
+          body: JSON.stringify({ id: t.id, category_id, learn }),
         });
         if (!r2.ok) { setSync('Error'); return; }
         const out = await r2.json();
@@ -839,7 +846,7 @@ async function loadGastosMov() {
           await loadGastosMeta(true);
           if (out.propagated) loadGastosMov();
         } else {
-          setSync('Guardado');
+          setSync(learn === false && category_id ? 'Guardado · solo este movimiento' : 'Guardado');
           loadGastosMov();
         }
       },

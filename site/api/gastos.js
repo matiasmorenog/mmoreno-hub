@@ -250,7 +250,7 @@ export default async function handler(req, res) {
     const notes = hasNotes
       ? (typeof b.notes === 'string' ? b.notes.trim().slice(0, 2000) || null : null)
       : undefined;
-    const learn = b.learn !== false; // default: upsert rule from merchant
+    const learn = b.learn === true; // only when UI confirmed “aplicar siempre”
 
     const catSource = hasCat
       ? (category_id ? CAT_SRC_MANUAL : null)
