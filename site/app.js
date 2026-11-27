@@ -8,7 +8,42 @@ const LS = {
 const DEBOUNCE_MS = 2500;
 const RECENT_MS = 5 * 60 * 1000; // superpone tildes confirmadas sobre un GET cacheado
 let brief = null, timer = null, tracker = null, meds = null, medTimer = null, shopping = null, shopTimer = null;
-let gastos = null, gastosPreview = null, gastosFileB64 = null, gastosFileName = null, gastosSub = 'movimientos';
+let gastos = null, gastosPreview = null, gastosFileB64 = null, gastosFileName = null, gastosSettlementB64 = null, gastosSub = 'movimientos';
+
+function formatGastosHora(t) {
+  if (t == null) return '—';
+  if (typeof t.hora_local === 'number' && t.hora_local >= 0 && t.hora_local <= 23) {
+    const hh = String(t.hora_local).padStart(2, '0');
+    if (t.posted_at) {
+      try {
+        const d = new Date(t.posted_at);
+        if (!Number.isNaN(d.getTime())) {
+          const parts = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'America/Argentina/Buenos_Aires',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+          }).formatToParts(d);
+          const h = parts.find((p) => p.type === 'hour')?.value;
+          const m = parts.find((p) => p.type === 'minute')?.value;
+          if (h != null && m != null) return `${h}:${m}`;
+        }
+      } catch { /* fall through */ }
+    }
+    return `${hh}:00`;
+  }
+  if (t.posted_at) {
+    try {
+      return new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }).format(new Date(t.posted_at));
+    } catch { /* ignore */ }
+  }
+  return '—';
+}
 function currentMonthAR() {
   // YYYY-MM in America/Argentina/Buenos_Aires
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -582,6 +617,7 @@ function renderGastosPreview() {
     if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'merpago'));
     return el('tr', {},
       el('td', {}, t.fecha),
+      el('td', { class: 'muted' }, formatGastosHora(t)),
       el('td', {}, t.descripcion || t.merchant || ''),
       el('td', { class: 'amt ' + (t.amount < 0 ? 'neg' : 'pos') }, moneyFmt(t.amount, t.currency)),
       el('td', {}, t.currency),
@@ -589,27 +625,35 @@ function renderGastosPreview() {
   }));
 }
 
+async function fileToB64(file) {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return btoa(bin);
+}
+
 $('#gastosUpload').addEventListener('submit', async (e) => {
   e.preventDefault();
   const file = $('#gFile').files?.[0];
   if (!file) return;
+  const settFile = $('#gSettlement')?.files?.[0] || null;
   const btn = e.target.querySelector('button');
   btn.disabled = true;
   setSync('Parseando…');
   try {
-    const buf = await file.arrayBuffer();
-    const bytes = new Uint8Array(buf);
-    let bin = '';
-    const chunk = 0x8000;
-    for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
-    gastosFileB64 = btoa(bin);
+    gastosFileB64 = await fileToB64(file);
     gastosFileName = file.name;
+    gastosSettlementB64 = settFile ? await fileToB64(settFile) : null;
     const account_id = $('#gAccountHint').value || null;
+    const body = { action: 'preview', filename: file.name, content_base64: gastosFileB64, account_id };
+    if (gastosSettlementB64) body.settlement_base64 = gastosSettlementB64;
     const r = await fetch('/api/gastos-import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ action: 'preview', filename: file.name, content_base64: gastosFileB64, account_id }),
+      body: JSON.stringify(body),
     });
     if (r.status === 401) return showLogin();
     if (r.status === 409) {
@@ -642,16 +686,18 @@ $('#gastosConfirm').addEventListener('click', async () => {
   setSync('Confirmando…');
   $('#gastosConfirm').disabled = true;
   try {
+    const body = {
+      action: 'confirm',
+      filename: gastosFileName,
+      content_base64: gastosFileB64,
+      account_id: gastosPreview.account_id,
+    };
+    if (gastosSettlementB64) body.settlement_base64 = gastosSettlementB64;
     const r = await fetch('/api/gastos-import', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({
-        action: 'confirm',
-        filename: gastosFileName,
-        content_base64: gastosFileB64,
-        account_id: gastosPreview.account_id,
-      }),
+      body: JSON.stringify(body),
     });
     if (r.status === 401) return showLogin();
     if (!r.ok) {
@@ -660,11 +706,14 @@ $('#gastosConfirm').addEventListener('click', async () => {
       return;
     }
     const out = await r.json();
-    setSync(`Import OK · ${out.upserted} upsert`);
+    const joined = out.summary?.settlement_joined;
+    setSync(`Import OK · ${out.upserted} upsert` + (joined != null ? ` · settlement ${joined}` : ''));
     gastosPreview = null;
     gastosFileB64 = null;
+    gastosSettlementB64 = null;
     renderGastosPreview();
-    $('#gastosImportMeta').textContent = `Confirmado ${out.import_id} · ${out.upserted} movimientos`;
+    $('#gastosImportMeta').textContent = `Confirmado ${out.import_id} · ${out.upserted} movimientos` +
+      (joined != null ? ` · join ${joined}` : '');
     await loadGastosMeta(true);
   } catch {
     setSync('Error al confirmar');
@@ -717,6 +766,7 @@ async function loadGastosMov() {
     if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'mp'));
     return el('tr', {},
       el('td', {}, String(t.fecha).slice(0, 10)),
+      el('td', { class: 'muted' }, formatGastosHora(t)),
       el('td', {}, t.account_nombre || t.account_id),
       el('td', {}, t.descripcion || t.merchant || '', flags.length ? el('div', {}, ...flags) : null),
       el('td', { class: 'amt ' + (Number(t.amount) < 0 ? 'neg' : 'pos') }, moneyFmt(t.amount, t.currency)),

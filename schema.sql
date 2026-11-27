@@ -181,6 +181,10 @@ CREATE TABLE IF NOT EXISTS transactions (
   import_id text REFERENCES imports(id) ON DELETE SET NULL,
   fingerprint text NOT NULL,
   fecha date NOT NULL,
+  -- Real event time when known (e.g. MP settlement TRANSACTION_DATE with -03 offset).
+  posted_at timestamptz,
+  -- Hour 0–23 in America/Argentina/Buenos_Aires when posted_at (or CSV time) is known.
+  hora_local smallint CHECK (hora_local IS NULL OR (hora_local >= 0 AND hora_local <= 23)),
   descripcion text,
   merchant text,
   tx_type text,
@@ -200,8 +204,13 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 CREATE INDEX IF NOT EXISTS transactions_fecha_idx ON transactions (fecha DESC);
 CREATE INDEX IF NOT EXISTS transactions_account_fecha_idx ON transactions (account_id, fecha DESC);
+CREATE INDEX IF NOT EXISTS transactions_posted_at_idx ON transactions (posted_at DESC NULLS LAST);
 CREATE INDEX IF NOT EXISTS transactions_category_idx ON transactions (category_id);
 CREATE INDEX IF NOT EXISTS transactions_excluded_idx ON transactions (is_excluded, fecha DESC);
+
+-- Additive for DBs created before posted_at existed:
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS posted_at timestamptz;
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS hora_local smallint;
 
 INSERT INTO accounts (id, nombre, tipo, moneda_default, orden) VALUES
   ('mp_wallet', 'Mercado Pago billetera', 'mp_wallet', 'ARS', 10),

@@ -129,7 +129,8 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
   if (account_id && month) {
     return includeExcluded
       ? sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.descripcion, t.merchant,
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
                  t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
@@ -139,7 +140,8 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
           WHERE t.account_id = ${account_id} AND to_char(t.fecha, 'YYYY-MM') = ${month}
           ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
       : sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.descripcion, t.merchant,
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
                  t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
@@ -153,7 +155,8 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
   if (account_id) {
     return includeExcluded
       ? sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.descripcion, t.merchant,
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
                  t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
@@ -163,7 +166,8 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
           WHERE t.account_id = ${account_id}
           ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
       : sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.descripcion, t.merchant,
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
                  t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
@@ -176,7 +180,8 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
   if (month) {
     return includeExcluded
       ? sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.descripcion, t.merchant,
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
                  t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
@@ -186,7 +191,8 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
           WHERE to_char(t.fecha, 'YYYY-MM') = ${month}
           ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
       : sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.descripcion, t.merchant,
+          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+                 t.descripcion, t.merchant,
                  t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
                  t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                  c.nombre AS category_nombre, a.nombre AS account_nombre
@@ -198,7 +204,8 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
   }
   return includeExcluded
     ? sql`
-        SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.descripcion, t.merchant,
+        SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+               t.descripcion, t.merchant,
                t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
                t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                c.nombre AS category_nombre, a.nombre AS account_nombre
@@ -207,7 +214,8 @@ async function fetchTxs(sql, account_id, month, includeExcluded) {
         LEFT JOIN accounts a ON a.id = t.account_id
         ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
     : sql`
-        SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.descripcion, t.merchant,
+        SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+               t.descripcion, t.merchant,
                t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id,
                t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
                c.nombre AS category_nombre, a.nombre AS account_nombre

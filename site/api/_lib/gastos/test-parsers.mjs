@@ -5,6 +5,12 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import XLSX from 'xlsx';
 import { parseMpAccountStatement } from './mp-account.js';
+import {
+  detectMpSettlement,
+  joinSettlementTimes,
+  parseMpSettlement,
+} from './mp-settlement.js';
+import { parseExpenseFile } from './parse.js';
 import { parseSantanderCajaXlsx } from './santander-caja.js';
 import {
   detectSantanderCardKind,
@@ -155,6 +161,35 @@ test('DLOCAL + Rendimientos + night hour builtins', () => {
   assert.equal(night.category_id, CAT_UBER_DIDI);
   const third = ruled.find((t) => /Persona Tercera/i.test(t.descripcion));
   assert.equal(third.category_id, null);
+});
+
+test('settlement_v2 joins SOURCE_ID to REFERENCE_ID and night Uber from ISO -03', async () => {
+  const account = fs.readFileSync(path.join(fixtures, 'mp-account-sample.csv'));
+  const settlement = fs.readFileSync(path.join(fixtures, 'mp-settlement-sample.csv'), 'utf8');
+  assert.equal(detectMpSettlement(settlement), true);
+  const map = parseMpSettlement(settlement);
+  assert.equal(map.size, 6);
+  assert.equal(map.get('REF0000000006').hora_local, 2);
+
+  const parsed = await parseExpenseFile(account, {
+    filename: 'mp-account-sample.csv',
+    settlementText: settlement,
+    rules: SEED_RULES,
+  });
+  assert.equal(parsed.summary.settlement_joined, 6);
+  const night = parsed.txs.find((t) => /Night Passenger/i.test(t.descripcion));
+  assert.equal(night.hora_local, 2);
+  assert.ok(night.posted_at);
+  assert.equal(night.category_id, CAT_UBER_DIDI);
+  const third = parsed.txs.find((t) => /Persona Tercera/i.test(t.descripcion));
+  assert.equal(third.hora_local, 14);
+  assert.equal(third.category_id, null);
+  const dlocal = parsed.txs.find((t) => /DLOCAL/i.test(t.descripcion));
+  assert.equal(dlocal.hora_local, 16);
+  assert.equal(dlocal.category_id, CAT_UBER_DIDI);
+
+  const joinedOnly = joinSettlementTimes(parseMpAccountStatement(account.toString('utf8')).txs, map);
+  assert.equal(joinedOnly.joined, 6);
 });
 
 test('learnPatternFromTx prefers merchant', () => {

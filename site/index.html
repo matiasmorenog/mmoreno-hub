@@ -110,7 +110,7 @@
         <span id="gMovCount" class="muted"></span>
       </div>
       <div class="tablewrap"><table class="tbl" id="gastosMov">
-        <thead><tr><th>Fecha</th><th>Cuenta</th><th>Descripción</th><th>Monto</th><th>Categoría</th><th></th></tr></thead>
+        <thead><tr><th>Fecha</th><th>Hora</th><th>Cuenta</th><th>Descripción</th><th>Monto</th><th>Categoría</th><th></th></tr></thead>
         <tbody></tbody>
       </table></div>
     </div>
@@ -153,9 +153,10 @@
     </div>
 
     <div id="gastos-importar" hidden>
-      <p class="muted">Subí CSV MP billetera, XLSX Santander caja, o PDF (MP tarjeta / Visa / Amex). El archivo se hashea; si ya se confirmó, no se duplica.</p>
+      <p class="muted">Subí CSV MP billetera, XLSX Santander caja, o PDF (MP tarjeta / Visa / Amex). Para horas reales de MP: account_statement + settlement_v2 (REFERENCE_ID = SOURCE_ID). El archivo principal se hashea; si ya se confirmó, no se duplica.</p>
       <form id="gastosUpload" class="add-row">
-        <input id="gFile" type="file" accept=".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+        <input id="gFile" type="file" accept=".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required aria-label="Extracto principal">
+        <input id="gSettlement" type="file" accept=".csv,text/csv" aria-label="MP settlement_v2 (opcional)">
         <select id="gAccountHint" aria-label="Cuenta (opcional)">
           <option value="">Detectar cuenta</option>
           <option value="mp_wallet">MP billetera</option>
@@ -173,7 +174,7 @@
           <button type="button" id="gastosConfirm" class="add-row" style="padding:7px 14px;border:0;border-radius:8px;background:var(--ac);color:#fff;cursor:pointer">Confirmar import</button>
         </div>
         <div class="tablewrap"><table class="tbl" id="gastosPreview">
-          <thead><tr><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Moneda</th><th>Flags</th></tr></thead>
+          <thead><tr><th>Fecha</th><th>Hora</th><th>Descripción</th><th>Monto</th><th>Moneda</th><th>Flags</th></tr></thead>
           <tbody></tbody>
         </table></div>
       </div>

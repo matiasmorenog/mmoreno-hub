@@ -1,4 +1,5 @@
 import { detectMpAccountStatement, parseMpAccountStatement } from './mp-account.js';
+import { detectMpSettlement, joinSettlementTimes, parseMpSettlement } from './mp-settlement.js';
 import { detectSantanderCajaXlsx, parseSantanderCajaXlsx } from './santander-caja.js';
 import {
   detectSantanderCardKind,
@@ -28,10 +29,29 @@ function withRules(parsed, rules) {
   return parsed;
 }
 
+function applySettlementJoin(parsed, settlementText, warnings) {
+  if (!settlementText) return parsed;
+  if (!detectMpSettlement(settlementText)) {
+    warnings.push('settlement_not_recognized');
+    return parsed;
+  }
+  const map = parseMpSettlement(settlementText);
+  const { txs, joined } = joinSettlementTimes(parsed.txs, map);
+  parsed.txs = txs;
+  parsed.summary = {
+    ...parsed.summary,
+    settlement_joined: joined,
+    settlement_map_size: map.size,
+  };
+  if (joined === 0) warnings.push('settlement_no_joins');
+  else warnings.push(`settlement_joined_${joined}`);
+  return parsed;
+}
+
 /**
  * Detect format and parse file buffer.
  * @param {Buffer} buf
- * @param {{ filename?: string, account_id?: string, rules?: any[] }} opts
+ * @param {{ filename?: string, account_id?: string, rules?: any[], settlementText?: string }} opts
  */
 export async function parseExpenseFile(buf, opts = {}) {
   const filename = opts.filename || 'upload';
@@ -41,13 +61,19 @@ export async function parseExpenseFile(buf, opts = {}) {
 
   // CSV / text
   const asText = buf.toString('utf8');
+  if (detectMpSettlement(asText) && !detectMpAccountStatement(asText)) {
+    throw Object.assign(new Error('mp_settlement_needs_account_statement'), {
+      code: 'mp_settlement_needs_account_statement',
+    });
+  }
   if (detectMpAccountStatement(asText) || lower.endsWith('.csv')) {
     if (!detectMpAccountStatement(asText)) {
       throw Object.assign(new Error('unsupported_csv'), { code: 'unsupported_csv' });
     }
-    const parsed = parseMpAccountStatement(asText, {
+    let parsed = parseMpAccountStatement(asText, {
       account_id: opts.account_id || 'mp_wallet',
     });
+    parsed = applySettlementJoin(parsed, opts.settlementText, warnings);
     return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
   }
 

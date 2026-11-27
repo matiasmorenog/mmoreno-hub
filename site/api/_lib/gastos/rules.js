@@ -69,7 +69,8 @@ export function applyBuiltins(tx) {
     out.category_id = out.category_id || CAT_RENDIMIENTOS;
   }
 
-  // Night window only when we have a real local hour (account_statement CSV is date-only today).
+  // Night window 00:00–07:59 America/Argentina/Buenos_Aires (from settlement join / hora_local).
+  // Does not clear other categories; only fills Uber/DiDi when empty or already that category.
   const h = horaLocal(out);
   if (
     out.account_id === 'mp_wallet' &&
@@ -78,7 +79,9 @@ export function applyBuiltins(tx) {
     h >= 0 &&
     h < 8
   ) {
-    out.category_id = out.category_id || CAT_UBER_DIDI;
+    if (!out.category_id || out.category_id === CAT_UBER_DIDI) {
+      out.category_id = CAT_UBER_DIDI;
+    }
   }
 
   if (out.account_id === 'santander_amex' && /merpago/i.test(hay)) {
