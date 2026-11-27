@@ -84,6 +84,27 @@ details p{margin-top:8px!important;color:var(--mu);font-size:14px}
 .reglas-form{flex-wrap:wrap;align-items:center}
 .reglas-form label{flex:none}
 #gastosRules .t{font-weight:500;line-height:1.35}
+#gastosRules li.rule-group{flex-direction:column;align-items:stretch;gap:0;padding:0}
+#gastosRules .rule-group-head{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;width:100%;
+  padding:14px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;
+}
+#gastosRules .rule-group-head:hover{background:color-mix(in srgb, var(--tx) 4%, transparent)}
+#gastosRules .rule-group-chevron{color:var(--mu);width:1em;flex:none}
+#gastosRules .rule-group-title{font-weight:600}
+#gastosRules .rule-group-count{flex:none}
+#gastosRules .rule-group-preview{flex:1 1 100%;padding-left:1.4em}
+#gastosRules .rule-group-body{padding:0 14px 14px 14px;border-top:1px solid var(--bd)}
+#gastosRules .rule-group-lead{margin:10px 0 8px}
+#gastosRules .rule-tag-list{display:flex;flex-direction:column;gap:6px}
+#gastosRules .rule-tag-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+#gastosRules .rule-tag{
+  display:inline-block;font-size:13px;padding:4px 10px;border:1px solid var(--bd);
+  border-radius:8px;background:color-mix(in srgb, var(--tx) 3%, transparent);max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+#gastosRules .rule-tag-meta{flex:1;min-width:0}
+#gastosRules .rule-tag-row .row-actions{margin-left:auto}
 .gastos-mov-filters{align-items:flex-start}
 .acct-filter{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;flex:1 1 100%}
 .acct-chips{display:flex;flex-wrap:wrap;gap:6px}

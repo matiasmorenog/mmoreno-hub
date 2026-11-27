@@ -12,6 +12,8 @@ let gastos = null, gastosPreview = null, gastosFileB64 = null, gastosFileName = 
 /** Selected account ids for Movimientos filter. null = all (default). */
 let gastosAcctSelected = null;
 let gastosMovSearchTimer = null;
+/** Expanded Reglas category-group keys (persist across re-render). */
+const gastosRuleGroupsOpen = new Set();
 
 function formatGastosHora(t) {
   if (t == null) return '—';
@@ -969,9 +971,49 @@ function ruleSearchHay(r) {
   return `${r.pattern || ''} ${cat} ${acct}`.toLowerCase();
 }
 
+function ruleGroupKey(r) {
+  if (r.category_id) return `cat:${r.category_id}`;
+  if (r.exclude_expense) return 'exclude';
+  return 'none';
+}
+
+function ruleGroupMeta(key) {
+  if (key === 'exclude') {
+    return { title: 'No contar como gasto', orden: 9500 };
+  }
+  if (key === 'none') {
+    return { title: 'Sin categoría', orden: 9600 };
+  }
+  const id = key.slice(4);
+  const cat = (gastos?.categories || []).find((c) => c.id === id);
+  return {
+    title: cat?.nombre || catNombre(id) || id,
+    orden: typeof cat?.orden === 'number' ? cat.orden : 5000,
+  };
+}
+
+function deleteRegla(r) {
+  return async () => {
+    if (!confirm(`¿Borrar la regla «${r.pattern}»?`)) return;
+    setSync('Borrando…');
+    const res = await fetch('/api/gastos', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ entity: 'rule', id: r.id }),
+    });
+    if (!res.ok) { setSync('No se pudo borrar'); return; }
+    if ($('#rEditId')?.value === r.id) clearReglaEdit();
+    await loadGastosMeta(true);
+    renderGastosRules();
+    setSync('Regla borrada');
+  };
+}
+
 function renderGastosRules() {
   if (!gastos) return;
   const ul = $('#gastosRules');
+  if (!ul) return;
   const q = ($('#rFilter')?.value || '').trim().toLowerCase();
   const all = gastos.rules || [];
   const rules = q ? all.filter((r) => ruleSearchHay(r).includes(q)) : all;
@@ -980,47 +1022,83 @@ function renderGastosRules() {
       ? `${rules.length} de ${all.length}`
       : (all.length ? `${all.length} reglas` : '');
   }
-  ul.replaceChildren(...rules.map((r) => {
-    const cat = catNombre(r.category_id);
-    const acct = accountNombre(r.account_id);
-    let line = `Si el texto contiene «${r.pattern}»`;
-    if (cat) line += ` → ${cat}`;
-    else if (r.exclude_expense) line += ' → no contar como gasto';
-    else line += ' → (sin categoría)';
-    const bits = [];
-    if (acct) bits.push(`solo en ${acct}`);
-    if (r.exclude_expense && cat) bits.push('no contar como gasto');
-    return el('li', {},
-      el('div', { class: 'body' },
-        el('div', { class: 't' }, line),
-        bits.length ? el('div', { class: 'd' }, bits.join(' · ')) : null),
-      el('div', { class: 'row-actions' },
-        iconBtn({
-          label: 'Editar regla',
-          icon: 'edit',
-          onclick: () => startReglaEdit(r),
-        }),
-        iconBtn({
-          label: 'Borrar regla',
-          icon: 'trash',
-          danger: true,
-          onclick: async () => {
-            if (!confirm(`¿Borrar la regla «${r.pattern}»?`)) return;
-            setSync('Borrando…');
-            const res = await fetch('/api/gastos', {
-              method: 'DELETE',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'same-origin',
-              body: JSON.stringify({ entity: 'rule', id: r.id }),
-            });
-            if (!res.ok) { setSync('No se pudo borrar'); return; }
-            if ($('#rEditId')?.value === r.id) clearReglaEdit();
-            await loadGastosMeta(true);
-            renderGastosRules();
-            setSync('Regla borrada');
-          },
+
+  const byGroup = new Map();
+  for (const r of rules) {
+    const key = ruleGroupKey(r);
+    if (!byGroup.has(key)) byGroup.set(key, []);
+    byGroup.get(key).push(r);
+  }
+  const groups = [...byGroup.entries()]
+    .map(([key, list]) => {
+      const meta = ruleGroupMeta(key);
+      list.sort((a, b) =>
+        (a.priority - b.priority)
+        || String(a.pattern || '').localeCompare(String(b.pattern || ''), 'es')
+        || String(a.id).localeCompare(String(b.id)));
+      return { key, ...meta, rules: list };
+    })
+    .sort((a, b) => (a.orden - b.orden) || a.title.localeCompare(b.title, 'es'));
+
+  // Auto-expand groups that match search so hits are visible.
+  if (q) {
+    for (const g of groups) gastosRuleGroupsOpen.add(g.key);
+  }
+
+  ul.replaceChildren(...groups.map((g) => {
+    const open = gastosRuleGroupsOpen.has(g.key);
+    const preview = g.rules.slice(0, 6).map((r) => r.pattern).filter(Boolean);
+    const more = g.rules.length > preview.length ? ` +${g.rules.length - preview.length}` : '';
+    const head = el('button', {
+      type: 'button',
+      class: 'rule-group-head',
+      'aria-expanded': open ? 'true' : 'false',
+      onclick: () => {
+        if (gastosRuleGroupsOpen.has(g.key)) gastosRuleGroupsOpen.delete(g.key);
+        else gastosRuleGroupsOpen.add(g.key);
+        renderGastosRules();
+      },
+    },
+      el('span', { class: 'rule-group-chevron', 'aria-hidden': 'true' }, open ? '▾' : '▸'),
+      el('span', { class: 'rule-group-title' }, g.title),
+      el('span', { class: 'rule-group-count muted small' },
+        `${g.rules.length} regla${g.rules.length === 1 ? '' : 's'}`),
+      (!open && preview.length
+        ? el('span', { class: 'rule-group-preview muted small' },
+          `Si el texto contiene: ${preview.join(', ')}${more}`)
+        : null));
+
+    const body = el('div', {
+      class: 'rule-group-body',
+      hidden: !open,
+    },
+      el('p', { class: 'rule-group-lead muted small' }, 'Si el texto contiene:'),
+      el('div', { class: 'rule-tag-list' },
+        ...g.rules.map((r) => {
+          const acct = accountNombre(r.account_id);
+          const bits = [];
+          if (acct) bits.push(`solo ${acct}`);
+          if (r.exclude_expense) bits.push('excluir gasto');
+          return el('div', { class: 'rule-tag-row' },
+            el('span', { class: 'rule-tag', title: r.pattern }, r.pattern),
+            bits.length ? el('span', { class: 'rule-tag-meta muted small' }, bits.join(' · ')) : null,
+            el('div', { class: 'row-actions' },
+              iconBtn({
+                label: `Editar «${r.pattern}»`,
+                icon: 'edit',
+                onclick: () => startReglaEdit(r),
+              }),
+              iconBtn({
+                label: `Borrar «${r.pattern}»`,
+                icon: 'trash',
+                danger: true,
+                onclick: deleteRegla(r),
+              })));
         })));
+
+    return el('li', { class: 'rule-group' + (open ? ' open' : '') }, head, body);
   }));
+
   if (!all.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay reglas.'));
   else if (!rules.length) ul.append(el('li', { class: 'muted' }, 'Ninguna regla coincide con la búsqueda.'));
 }
