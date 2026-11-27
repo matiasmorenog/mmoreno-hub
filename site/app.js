@@ -17,6 +17,11 @@ const gastosRuleGroupsOpen = new Set();
 /** Last loaded movimientos rows (client sort). */
 let gastosMovRows = [];
 let gastosMovSort = { key: 'fecha', dir: 'desc' };
+/** Resumen por categoría (client sort + expand). */
+let gastosCatRows = [];
+let gastosCatSort = { key: 'total', dir: 'asc' };
+const gastosCatOpen = new Set();
+const gastosCatTxCache = new Map();
 
 function formatGastosHora(t) {
   if (t == null) return '—';
@@ -1288,6 +1293,123 @@ $('#rCancelEdit')?.addEventListener('click', () => {
 });
 $('#rFilter')?.addEventListener('input', () => renderGastosRules());
 
+function catRowKey(row) {
+  return `${row.category_id || '__none__'}|${row.currency || ''}`;
+}
+
+function sortedGastosCatRows() {
+  const { key, dir } = gastosCatSort;
+  const mul = dir === 'asc' ? 1 : -1;
+  return gastosCatRows.slice().sort((a, b) => {
+    let va;
+    let vb;
+    if (key === 'total' || key === 'n') {
+      va = Number(a[key]) || 0;
+      vb = Number(b[key]) || 0;
+    } else {
+      va = String(a[key] || '').toLowerCase();
+      vb = String(b[key] || '').toLowerCase();
+    }
+    if (va < vb) return -1 * mul;
+    if (va > vb) return 1 * mul;
+    return String(a.category || '').localeCompare(String(b.category || ''), 'es') * mul;
+  });
+}
+
+function updateCatSortHeaders() {
+  for (const btn of document.querySelectorAll('#gastosCatTbl .th-sort')) {
+    const on = btn.dataset.sort === gastosCatSort.key;
+    btn.classList.toggle('on', on);
+    if (on) btn.dataset.dir = gastosCatSort.dir === 'asc' ? '↑' : '↓';
+    else btn.removeAttribute('data-dir');
+  }
+}
+
+function renderCatDetailInner(txs) {
+  if (!txs.length) return el('p', { class: 'muted small' }, 'Sin movimientos.');
+  return el('table', { class: 'cat-detail-tbl' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, 'Fecha'),
+      el('th', {}, 'Hora'),
+      el('th', {}, 'Cuenta'),
+      el('th', {}, 'Descripción'),
+      el('th', {}, 'Monto'))),
+    el('tbody', {}, ...txs.map((t) => el('tr', {},
+      el('td', {}, String(t.fecha).slice(0, 10)),
+      el('td', { class: 'muted' }, formatGastosHora(t)),
+      el('td', {}, t.account_nombre || t.account_id || ''),
+      el('td', {}, t.descripcion || t.merchant || ''),
+      el('td', { class: 'amt ' + (Number(t.amount) < 0 ? 'neg' : 'pos') }, moneyFmt(t.amount, t.currency))))));
+}
+
+async function loadCatDetailTxs(row) {
+  const key = catRowKey(row);
+  if (gastosCatTxCache.has(key)) return gastosCatTxCache.get(key);
+  const account_id = $('#gResCuenta')?.value || '';
+  const month = $('#gResMes')?.value || '';
+  const qs = new URLSearchParams({ view: 'movimientos', include_excluded: '0' });
+  if (account_id) qs.set('account_id', account_id);
+  if (month) qs.set('month', month);
+  if (!row.category_id) qs.set('uncategorized', '1');
+  else qs.set('category_id', row.category_id);
+  const r = await fetch('/api/gastos?' + qs, { credentials: 'same-origin' });
+  if (r.status === 401) { showLogin(); return []; }
+  if (!r.ok) return [];
+  const data = await r.json();
+  const cur = row.currency || '';
+  const txs = (data.transactions || []).filter((t) => !cur || t.currency === cur);
+  gastosCatTxCache.set(key, txs);
+  return txs;
+}
+
+function renderGastosCatTbl() {
+  const tb = $('#gastosCatTbl tbody');
+  if (!tb) return;
+  updateCatSortHeaders();
+  const frag = [];
+  for (const row of sortedGastosCatRows()) {
+    const key = catRowKey(row);
+    const open = gastosCatOpen.has(key);
+    frag.push(el('tr', {
+      class: 'cat-row' + (open ? ' open' : ''),
+      onclick: () => { void toggleCatRow(row); },
+    },
+      el('td', {},
+        el('span', { class: 'cat-chevron', 'aria-hidden': 'true' }, open ? '▾' : '▸'),
+        row.category || 'Sin categoría'),
+      el('td', {}, row.currency),
+      el('td', { class: 'amt' }, moneyFmt(row.total, row.currency)),
+      el('td', {}, row.n)));
+    if (open) {
+      const cached = gastosCatTxCache.get(key);
+      frag.push(el('tr', { class: 'cat-detail' },
+        el('td', { colspan: 4 },
+          cached
+            ? renderCatDetailInner(cached)
+            : el('p', { class: 'muted small' }, 'Cargando movimientos…'))));
+    }
+  }
+  tb.replaceChildren(...frag);
+}
+
+async function toggleCatRow(row) {
+  const key = catRowKey(row);
+  if (gastosCatOpen.has(key)) {
+    gastosCatOpen.delete(key);
+    renderGastosCatTbl();
+    return;
+  }
+  gastosCatOpen.add(key);
+  renderGastosCatTbl();
+  setSync('Cargando categoría…');
+  try {
+    await loadCatDetailTxs(row);
+    if (gastosCatOpen.has(key)) renderGastosCatTbl();
+  } finally {
+    setSync('');
+  }
+}
+
 async function loadGastosResumen() {
   await loadGastosMeta(false);
   const account_id = $('#gResCuenta').value;
@@ -1321,16 +1443,29 @@ async function loadGastosResumen() {
     el('td', {}, moneyFmt(row.excluded, row.currency)),
     el('td', {}, moneyFmt(row.guarded_merpago, row.currency)),
     el('td', {}, row.n))));
-  $('#gastosCatTbl tbody').replaceChildren(...(data.by_category || []).map((row) => el('tr', {},
-    el('td', {}, row.category),
-    el('td', {}, row.currency),
-    el('td', { class: 'amt' }, moneyFmt(row.total, row.currency)),
-    el('td', {}, row.n))));
+  gastosCatRows = data.by_category || [];
+  gastosCatOpen.clear();
+  gastosCatTxCache.clear();
+  renderGastosCatTbl();
   setSync('');
 }
 for (const id of ['#gResCuenta', '#gResMes']) {
   $(id)?.addEventListener('change', () => { if (gastosSub === 'resumen') loadGastosResumen(); });
 }
+$('#gastosCatTbl')?.addEventListener('click', (e) => {
+  const btn = e.target.closest?.('.th-sort');
+  if (!btn || !$('#gastosCatTbl').contains(btn)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const key = btn.dataset.sort;
+  if (!key) return;
+  if (gastosCatSort.key === key) {
+    gastosCatSort.dir = gastosCatSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    gastosCatSort = { key, dir: key === 'total' || key === 'n' ? 'asc' : 'asc' };
+  }
+  renderGastosCatTbl();
+});
 
 // ---------- tracker (a demanda, cacheado por versión) ----------
 async function loadTracker() {

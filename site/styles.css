@@ -117,10 +117,17 @@ details p{margin-top:8px!important;color:var(--mu);font-size:14px}
 .ghost.tiny{font:inherit;font-size:12px;padding:2px 8px;border:0;background:transparent;color:var(--mu);cursor:pointer;text-decoration:underline}
 .ghost.tiny:hover{color:var(--tx)}
 #rFilter,#gFiltroTexto{flex:1;min-width:180px;max-width:320px}
-#gastosMov .th-sort{
+#gastosMov .th-sort,#gastosCatTbl .th-sort{
   font:inherit;font-weight:600;border:0;background:transparent;color:inherit;
   padding:0;cursor:pointer;text-align:left;
 }
-#gastosMov .th-sort:hover{color:var(--ac)}
-#gastosMov .th-sort.on::after{content:attr(data-dir);margin-left:4px;color:var(--mu);font-weight:400}
+#gastosMov .th-sort:hover,#gastosCatTbl .th-sort:hover{color:var(--ac)}
+#gastosMov .th-sort.on::after,#gastosCatTbl .th-sort.on::after{content:attr(data-dir);margin-left:4px;color:var(--mu);font-weight:400}
+#gastosCatTbl .cat-row{cursor:pointer}
+#gastosCatTbl .cat-row:hover td{background:color-mix(in srgb, var(--tx) 4%, transparent)}
+#gastosCatTbl .cat-chevron{display:inline-block;width:1em;color:var(--mu);margin-right:6px}
+#gastosCatTbl .cat-detail td{padding:8px 12px 14px;background:color-mix(in srgb, var(--tx) 2%, transparent)}
+#gastosCatTbl .cat-detail-tbl{width:100%;border-collapse:collapse;font-size:12px}
+#gastosCatTbl .cat-detail-tbl th,#gastosCatTbl .cat-detail-tbl td{padding:4px 6px;border-top:1px solid var(--bd);text-align:left}
+#gastosCatTbl .cat-detail-tbl th{color:var(--mu);font-weight:500;border-top:0}
 #rMatchType{max-width:200px}

@@ -92,42 +92,46 @@ async function fetchResumen(sql, account_id, month) {
 async function fetchByCategory(sql, account_id, month) {
   if (account_id && month) {
     return sql`
-      SELECT COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
+      SELECT t.category_id, COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
         COALESCE(SUM(t.amount), 0) AS total, COUNT(*)::int AS n
       FROM transactions t
       LEFT JOIN categories c ON c.id = t.category_id
       WHERE NOT t.is_excluded
         AND t.account_id = ${account_id}
         AND to_char(t.fecha, 'YYYY-MM') = ${month}
-      GROUP BY 1, 2 ORDER BY total ASC`;
+      GROUP BY t.category_id, c.nombre, t.currency
+      ORDER BY total ASC`;
   }
   if (month) {
     return sql`
-      SELECT COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
+      SELECT t.category_id, COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
         COALESCE(SUM(t.amount), 0) AS total, COUNT(*)::int AS n
       FROM transactions t
       LEFT JOIN categories c ON c.id = t.category_id
       WHERE NOT t.is_excluded
         AND to_char(t.fecha, 'YYYY-MM') = ${month}
-      GROUP BY 1, 2 ORDER BY total ASC`;
+      GROUP BY t.category_id, c.nombre, t.currency
+      ORDER BY total ASC`;
   }
   if (account_id) {
     return sql`
-      SELECT COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
+      SELECT t.category_id, COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
         COALESCE(SUM(t.amount), 0) AS total, COUNT(*)::int AS n
       FROM transactions t
       LEFT JOIN categories c ON c.id = t.category_id
       WHERE NOT t.is_excluded AND t.account_id = ${account_id}
-      GROUP BY 1, 2 ORDER BY total ASC
+      GROUP BY t.category_id, c.nombre, t.currency
+      ORDER BY total ASC
       LIMIT 40`;
   }
   return sql`
-    SELECT COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
+    SELECT t.category_id, COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
       COALESCE(SUM(t.amount), 0) AS total, COUNT(*)::int AS n
     FROM transactions t
     LEFT JOIN categories c ON c.id = t.category_id
     WHERE NOT t.is_excluded
-    GROUP BY 1, 2 ORDER BY total ASC
+    GROUP BY t.category_id, c.nombre, t.currency
+    ORDER BY total ASC
     LIMIT 40`;
 }
 
