@@ -8,6 +8,80 @@ const LS = {
 const DEBOUNCE_MS = 2500;
 const RECENT_MS = 5 * 60 * 1000; // superpone tildes confirmadas sobre un GET cacheado
 let brief = null, timer = null, tracker = null, meds = null, medTimer = null, shopping = null, shopTimer = null;
+let gastos = null, gastosPreview = null, gastosFileB64 = null, gastosFileName = null, gastosSettlementB64 = null, gastosSub = 'movimientos';
+/** Selected account ids for Movimientos filter. null = all (default). */
+let gastosAcctSelected = null;
+let gastosMovSearchTimer = null;
+/** Expanded Reglas category-group keys (persist across re-render). */
+const gastosRuleGroupsOpen = new Set();
+/** Last loaded movimientos rows (client sort). */
+let gastosMovRows = [];
+let gastosMovSort = { key: 'fecha', dir: 'desc' };
+/** Resumen por categoría (client sort + expand). */
+let gastosCatRows = [];
+let gastosCatSort = { key: 'total', dir: 'asc' };
+const gastosCatOpen = new Set();
+const gastosCatTxCache = new Map();
+
+function formatGastosHora(t) {
+  if (t == null) return '—';
+  if (typeof t.hora_local === 'number' && t.hora_local >= 0 && t.hora_local <= 23) {
+    const hh = String(t.hora_local).padStart(2, '0');
+    if (t.posted_at) {
+      try {
+        const d = new Date(t.posted_at);
+        if (!Number.isNaN(d.getTime())) {
+          const parts = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'America/Argentina/Buenos_Aires',
+            hour: '2-digit',
+            minute: '2-digit',
+            hourCycle: 'h23',
+          }).formatToParts(d);
+          const h = parts.find((p) => p.type === 'hour')?.value;
+          const m = parts.find((p) => p.type === 'minute')?.value;
+          if (h != null && m != null) return `${h}:${m}`;
+        }
+      } catch { /* fall through */ }
+    }
+    return `${hh}:00`;
+  }
+  if (t.posted_at) {
+    try {
+      return new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'America/Argentina/Buenos_Aires',
+        hour: '2-digit',
+        minute: '2-digit',
+        hourCycle: 'h23',
+      }).format(new Date(t.posted_at));
+    } catch { /* ignore */ }
+  }
+  return '—';
+}
+function currentMonthAR() {
+  // YYYY-MM in America/Argentina/Buenos_Aires
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date());
+  const y = parts.find((p) => p.type === 'year')?.value;
+  const m = parts.find((p) => p.type === 'month')?.value;
+  return `${y}-${m}`;
+}
+function todayAR() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+function ensureGastosMonthDefaults() {
+  const cur = currentMonthAR();
+  if ($('#gFiltroMes') && !$('#gFiltroMes').value) $('#gFiltroMes').value = cur;
+  if ($('#gResMes') && !$('#gResMes').value) $('#gResMes').value = cur;
+  if ($('#cashFecha') && !$('#cashFecha').value) $('#cashFecha').value = todayAR();
+}
 const MOMENTO_LABEL = { manana: 'Mañana', mediodia: 'Mediodía', noche: 'Noche' };
 
 function el(tag, attrs = {}, ...kids) {
@@ -40,6 +114,8 @@ const ICONS = {
   // pause — desactivar
   pause: 'M8 5a1 1 0 0 0-1 1v12a1 1 0 1 0 2 0V6a1 1 0 0 0-1-1zm8 0a1 1 0 0 0-1 1v12a1 1 0 1 0 2 0V6a1 1 0 0 0-1-1z',
   trash: 'M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9zm-3 6a1 1 0 0 1 1 1v8a1 1 0 1 0 2 0v-8a1 1 0 1 1-2 0zm5 0a1 1 0 0 1 1 1v8a1 1 0 1 0 2 0v-8a1 1 0 1 1-2 0zm5 1a1 1 0 1 0-2 0v8a1 1 0 1 0 2 0v-8z',
+  // pencil — editar
+  edit: 'M4 17.25V20h2.75l8.13-8.13-2.75-2.75L4 17.25zm14.71-9.04a1 1 0 0 0 0-1.41l-2.51-2.51a1 1 0 0 0-1.41 0l-1.83 1.83 3.92 3.92 1.83-1.83z',
 };
 function iconBtn({ label, onclick, danger, icon }) {
   return el('button', {
@@ -57,6 +133,27 @@ function tabLink(label, url, tab) {
   } }, label);
 }
 function setSync(t) { $('#sync').textContent = t; }
+
+/** Focus without hard jump; smooth-scroll the field into view so edit target is obvious. */
+function softFocusEdit(el) {
+  if (!el) return;
+  try { el.focus({ preventScroll: true }); } catch { try { el.focus(); } catch { /* ignore */ } }
+  try {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  } catch {
+    try { el.scrollIntoView(true); } catch { /* ignore */ }
+  }
+}
+
+/** Keep window scroll across list re-renders (expand/save/delete). */
+function withPreservedScroll(fn) {
+  const y = window.scrollY || window.pageYOffset || 0;
+  const x = window.scrollX || window.pageXOffset || 0;
+  fn();
+  requestAnimationFrame(() => {
+    window.scrollTo(x, y);
+  });
+}
 
 // ---------- estado de tildes ----------
 const pending = () => LS.get('mb_pending', {});
@@ -492,6 +589,1083 @@ $('#clearBought').addEventListener('click', async () => {
   } catch { setSync('No se pudo limpiar'); }
 });
 
+// ---------- gastos ----------
+const moneyFmt = (n, cur = 'ARS') => {
+  if (n == null || n === '') return '';
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '';
+  try {
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: cur === 'USD' ? 'USD' : 'ARS', maximumFractionDigits: 2 }).format(v);
+  } catch {
+    return `${v} ${cur}`;
+  }
+};
+function fillAccountSelects() {
+  if (!gastos?.accounts) return;
+  renderAcctChips();
+  for (const sel of [$('#gResCuenta'), $('#rAccount')]) {
+    if (!sel) continue;
+    const cur = sel.value;
+    sel.replaceChildren(el('option', { value: '' }, 'Todas las cuentas'));
+    for (const a of gastos.accounts) sel.append(el('option', { value: a.id }, a.nombre));
+    // Prefer current selection; for rAccount fall back to all accounts ('').
+    sel.value = [...sel.options].some((o) => o.value === cur) ? cur : '';
+  }
+  const catSel = $('#rCategory');
+  if (catSel) {
+    const cur = catSel.value;
+    catSel.replaceChildren(el('option', { value: '' }, 'Elegir categoría'));
+    for (const c of gastos.categories || []) catSel.append(el('option', { value: c.id }, c.nombre));
+    catSel.value = [...catSel.options].some((o) => o.value === cur) ? cur : '';
+  }
+  const filtroCat = $('#gFiltroCategoria');
+  if (filtroCat) {
+    const cur = filtroCat.value || '';
+    filtroCat.replaceChildren(
+      el('option', { value: '' }, 'Todas las categorías'),
+      el('option', { value: '__none__' }, 'Sin clasificar'),
+    );
+    for (const c of gastos.categories || []) filtroCat.append(el('option', { value: c.id }, c.nombre));
+    if ([...filtroCat.options].some((o) => o.value === cur)) filtroCat.value = cur;
+  }
+  for (const sel of [$('#cashCat'), $('#cashRecCat')]) {
+    if (!sel) continue;
+    const cur = sel.value;
+    sel.replaceChildren(el('option', { value: '' }, 'Sin categoría'));
+    for (const c of gastos.categories || []) sel.append(el('option', { value: c.id }, c.nombre));
+    if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  }
+}
+
+function acctSelectionSet() {
+  const all = (gastos?.accounts || []).map((a) => a.id);
+  if (gastosAcctSelected == null) return new Set(all);
+  return new Set(gastosAcctSelected);
+}
+
+function renderAcctChips() {
+  const wrap = $('#gAcctChips');
+  if (!wrap || !gastos?.accounts) return;
+  const selected = acctSelectionSet();
+  wrap.replaceChildren(...gastos.accounts.map((a) => {
+    const on = selected.has(a.id);
+    return el('button', {
+      type: 'button',
+      class: 'acct-chip' + (on ? ' on' : ''),
+      'aria-pressed': on ? 'true' : 'false',
+      onclick: () => {
+        const next = acctSelectionSet();
+        if (next.has(a.id)) next.delete(a.id);
+        else next.add(a.id);
+        const allIds = gastos.accounts.map((x) => x.id);
+        gastosAcctSelected = next.size === allIds.length ? null : [...next];
+        renderAcctChips();
+        if (gastosSub === 'movimientos') loadGastosMov();
+      },
+    }, a.nombre);
+  }));
+}
+
+/** Partial selection → account_ids. All selected → []. None → null (caller shows empty). */
+function selectedAccountIds() {
+  const all = gastos?.accounts || [];
+  if (!all.length) return [];
+  if (gastosAcctSelected == null) return [];
+  if (!gastosAcctSelected.length) return null;
+  if (gastosAcctSelected.length === all.length) return [];
+  return gastosAcctSelected.slice();
+}
+
+$('#gAcctAll')?.addEventListener('click', () => {
+  gastosAcctSelected = null;
+  renderAcctChips();
+  if (gastosSub === 'movimientos') loadGastosMov();
+});
+$('#gAcctNone')?.addEventListener('click', () => {
+  gastosAcctSelected = [];
+  renderAcctChips();
+  if (gastosSub === 'movimientos') loadGastosMov();
+});
+function showGastosSub(sub) {
+  gastosSub = sub;
+  ensureGastosMonthDefaults();
+  for (const s of ['movimientos', 'efectivo', 'reglas', 'resumen', 'importar']) {
+    const n = $('#gastos-' + s);
+    if (n) n.hidden = s !== sub;
+  }
+  document.querySelectorAll('#gastosSubtabs button').forEach((b) => b.classList.toggle('on', b.dataset.gview === sub));
+  if (sub === 'movimientos') loadGastosMov();
+  if (sub === 'efectivo') loadGastosEfectivo();
+  if (sub === 'reglas') { renderGastosCats(); renderGastosRules(); }
+  if (sub === 'resumen') loadGastosResumen();
+}
+document.querySelectorAll('#gastosSubtabs button').forEach((b) => b.addEventListener('click', () => showGastosSub(b.dataset.gview)));
+
+async function loadGastosMeta(force) {
+  if (gastos && !force) { fillAccountSelects(); return gastos; }
+  setSync('Cargando gastos…');
+  const r = await fetch('/api/gastos?view=meta', { credentials: 'same-origin', cache: force ? 'reload' : 'default' });
+  if (r.status === 401) return showLogin();
+  if (!r.ok) { setSync('Error gastos (' + r.status + ')'); return null; }
+  gastos = await r.json();
+  fillAccountSelects();
+  setSync('');
+  return gastos;
+}
+
+function renderGastosPreview() {
+  const wrap = $('#gastosPreviewWrap');
+  const meta = $('#gastosImportMeta');
+  if (!gastosPreview) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  const s = gastosPreview.summary || {};
+  const warns = (gastosPreview.warnings || []).join(', ');
+  meta.textContent = `${gastosPreview.account_id} · ${gastosPreview.source_format} · ${gastosPreview.txs.length} movs` +
+    (s.balance_check_ok === false ? ' · ⚠ summary mismatch' : s.balance_check_ok ? ' · summary OK' : '') +
+    (warns ? ' · ' + warns : '');
+  const tb = $('#gastosPreview tbody');
+  tb.replaceChildren(...gastosPreview.txs.slice(0, 200).map((t) => {
+    const flags = [];
+    if (t.is_internal_transfer) flags.push(el('span', { class: 'flag' }, 'interna'));
+    if (t.is_excluded) flags.push(el('span', { class: 'flag warn' }, 'excluida'));
+    if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'merpago'));
+    return el('tr', {},
+      el('td', {}, t.fecha),
+      el('td', { class: 'muted' }, formatGastosHora(t)),
+      el('td', {}, t.descripcion || t.merchant || ''),
+      el('td', { class: 'amt ' + (t.amount < 0 ? 'neg' : 'pos') }, moneyFmt(t.amount, t.currency)),
+      el('td', {}, t.currency),
+      el('td', {}, ...flags));
+  }));
+}
+
+async function fileToB64(file) {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return btoa(bin);
+}
+
+$('#gastosUpload').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const file = $('#gFile').files?.[0];
+  if (!file) return;
+  const settFile = $('#gSettlement')?.files?.[0] || null;
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  setSync('Parseando…');
+  try {
+    gastosFileB64 = await fileToB64(file);
+    gastosFileName = file.name;
+    gastosSettlementB64 = settFile ? await fileToB64(settFile) : null;
+    const account_id = $('#gAccountHint').value || null;
+    const body = { action: 'preview', filename: file.name, content_base64: gastosFileB64, account_id };
+    if (gastosSettlementB64) body.settlement_base64 = gastosSettlementB64;
+    const r = await fetch('/api/gastos-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+    });
+    if (r.status === 401) return showLogin();
+    if (r.status === 409) {
+      const err = await r.json();
+      setSync('Archivo ya importado');
+      $('#gastosImportMeta').textContent = 'Duplicado: ' + (err.filename || err.import_id);
+      gastosPreview = null;
+      renderGastosPreview();
+      return;
+    }
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      setSync('No se pudo parsear');
+      $('#gastosImportMeta').textContent = err.error || ('HTTP ' + r.status);
+      return;
+    }
+    gastosPreview = await r.json();
+    renderGastosPreview();
+    setSync('Vista previa lista');
+  } catch {
+    setSync('Error al leer archivo');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#gastosConfirm').addEventListener('click', async () => {
+  if (!gastosFileB64 || !gastosPreview) return;
+  if (!confirm(`¿Confirmar import de ${gastosPreview.txs.length} movimientos?`)) return;
+  setSync('Confirmando…');
+  $('#gastosConfirm').disabled = true;
+  try {
+    const body = {
+      action: 'confirm',
+      filename: gastosFileName,
+      content_base64: gastosFileB64,
+      account_id: gastosPreview.account_id,
+    };
+    if (gastosSettlementB64) body.settlement_base64 = gastosSettlementB64;
+    const r = await fetch('/api/gastos-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      setSync(err.error === 'duplicate_file' ? 'Ya importado' : 'No se pudo confirmar');
+      return;
+    }
+    const out = await r.json();
+    const joined = out.summary?.settlement_joined;
+    setSync(`Import OK · ${out.upserted} upsert` + (joined != null ? ` · settlement ${joined}` : ''));
+    gastosPreview = null;
+    gastosFileB64 = null;
+    gastosSettlementB64 = null;
+    renderGastosPreview();
+    $('#gastosImportMeta').textContent = `Confirmado ${out.import_id} · ${out.upserted} movimientos` +
+      (joined != null ? ` · join ${joined}` : '');
+    await loadGastosMeta(true);
+  } catch {
+    setSync('Error al confirmar');
+  } finally {
+    $('#gastosConfirm').disabled = false;
+  }
+});
+
+async function loadGastosMov() {
+  await loadGastosMeta(false);
+  const accountIds = selectedAccountIds();
+  if (accountIds === null) {
+    fillAccountSelects();
+    $('#gMovCount').textContent = '0 filas';
+    $('#gastosMov tbody')?.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted' }, 'Elegí al menos una cuenta.')));
+    setSync('');
+    return;
+  }
+  const month = $('#gFiltroMes').value;
+  const include = $('#gIncluirExcluidos').checked ? '1' : '0';
+  const catVal = $('#gFiltroCategoria')?.value || '';
+  const flow = $('#gFiltroFlow')?.value || '';
+  const textQ = ($('#gFiltroTexto')?.value || '').trim();
+  const qs = new URLSearchParams({ view: 'movimientos', include_excluded: include });
+  if (accountIds.length) qs.set('account_ids', accountIds.join(','));
+  if (month) qs.set('month', month);
+  if (catVal === '__none__') qs.set('uncategorized', '1');
+  else if (catVal) qs.set('category_id', catVal);
+  if (flow === 'ingresos' || flow === 'gastos') qs.set('flow', flow);
+  if (textQ) qs.set('q', textQ);
+  setSync('Cargando movimientos…');
+  const r = await fetch('/api/gastos?' + qs, { credentials: 'same-origin' });
+  if (r.status === 401) return showLogin();
+  if (!r.ok) { setSync('Error movimientos'); return; }
+  const data = await r.json();
+  gastos = { ...gastos, ...data };
+  fillAccountSelects();
+  gastosMovRows = data.transactions || [];
+  $('#gMovCount').textContent = `${gastosMovRows.length} filas`;
+  renderGastosMovTable();
+  setSync('');
+}
+
+function movSortValue(t, key) {
+  switch (key) {
+    case 'fecha': return String(t.fecha || '');
+    case 'hora': {
+      if (typeof t.hora_local === 'number') return t.hora_local;
+      if (t.posted_at) return new Date(t.posted_at).getTime();
+      return -1;
+    }
+    case 'cuenta': return String(t.account_nombre || t.account_id || '').toLowerCase();
+    case 'desc': return String(t.descripcion || t.merchant || '').toLowerCase();
+    case 'monto': return Number(t.amount) || 0;
+    case 'categoria': return String(catNombre(t.category_id) || '').toLowerCase();
+    default: return '';
+  }
+}
+
+function sortedGastosMovRows() {
+  const { key, dir } = gastosMovSort;
+  const mul = dir === 'asc' ? 1 : -1;
+  return gastosMovRows.slice().sort((a, b) => {
+    const va = movSortValue(a, key);
+    const vb = movSortValue(b, key);
+    if (va < vb) return -1 * mul;
+    if (va > vb) return 1 * mul;
+    return String(a.id).localeCompare(String(b.id)) * mul;
+  });
+}
+
+function updateMovSortHeaders() {
+  for (const btn of document.querySelectorAll('#gastosMov .th-sort')) {
+    const on = btn.dataset.sort === gastosMovSort.key;
+    btn.classList.toggle('on', on);
+    if (on) btn.dataset.dir = gastosMovSort.dir === 'asc' ? '↑' : '↓';
+    else btn.removeAttribute('data-dir');
+  }
+}
+
+function renderGastosMovTable() {
+  const tb = $('#gastosMov tbody');
+  if (!tb) return;
+  updateMovSortHeaders();
+  const cats = gastos?.categories || [];
+  tb.replaceChildren(...sortedGastosMovRows().map((t) => {
+    const sel = el('select', {
+      onchange: async (e) => {
+        const category_id = e.target.value || null;
+        let learn = false;
+        if (category_id) {
+          const label = String(t.merchant || t.descripcion || 'este movimiento').trim().slice(0, 80);
+          learn = confirm(`¿Aplicar siempre a «${label}»?\n\nAceptar = crear regla para futuros iguales.\nCancelar = solo este movimiento.`);
+        }
+        setSync('Guardando…');
+        const r2 = await fetch('/api/gastos', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ id: t.id, category_id, learn }),
+        });
+        if (!r2.ok) { setSync('Error'); return; }
+        const out = await r2.json();
+        t.category_id = out.category_id;
+        t.category_source = out.category_source;
+        if (out.learned_rule) {
+          setSync(`Guardado · regla “${out.learned_rule.pattern}”` + (out.propagated ? ` · +${out.propagated} iguales` : ''));
+          await loadGastosMeta(true);
+          if (out.propagated) loadGastosMov();
+        } else {
+          setSync(learn === false && category_id ? 'Guardado · solo este movimiento' : 'Guardado');
+          loadGastosMov();
+        }
+      },
+    }, el('option', { value: '' }, '—'));
+    for (const c of cats) sel.append(el('option', { value: c.id, selected: c.id === t.category_id }, c.nombre));
+    const flags = [];
+    if (t.category_source === 'history') flags.push(el('span', { class: 'flag', title: 'Heredada de merchant previo' }, 'hist'));
+    if (t.is_excluded) flags.push(el('span', { class: 'flag warn' }, 'excl'));
+    if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'mp'));
+    return el('tr', {},
+      el('td', {}, String(t.fecha).slice(0, 10)),
+      el('td', { class: 'muted' }, formatGastosHora(t)),
+      el('td', {}, t.account_nombre || t.account_id),
+      el('td', {}, t.descripcion || t.merchant || '', flags.length ? el('div', {}, ...flags) : null),
+      el('td', { class: 'amt ' + (Number(t.amount) < 0 ? 'neg' : 'pos') }, moneyFmt(t.amount, t.currency)),
+      el('td', {}, sel),
+      el('td', {}, el('button', {
+        type: 'button',
+        class: 'ghost',
+        onclick: async () => {
+          const r2 = await fetch('/api/gastos', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ id: t.id, is_excluded: !t.is_excluded, learn: false }),
+          });
+          if (r2.ok) loadGastosMov();
+        },
+      }, t.is_excluded ? 'Incluir' : 'Excluir')));
+  }));
+}
+
+for (const id of ['#gFiltroCategoria', '#gFiltroFlow', '#gFiltroMes', '#gIncluirExcluidos']) {
+  $(id)?.addEventListener('change', () => { if (gastosSub === 'movimientos') loadGastosMov(); });
+}
+$('#gFiltroTexto')?.addEventListener('input', () => {
+  if (gastosSub !== 'movimientos') return;
+  clearTimeout(gastosMovSearchTimer);
+  gastosMovSearchTimer = setTimeout(() => loadGastosMov(), 300);
+});
+$('#gFiltroTexto')?.addEventListener('search', () => {
+  if (gastosSub !== 'movimientos') return;
+  clearTimeout(gastosMovSearchTimer);
+  loadGastosMov();
+});
+$('#gastosMov')?.addEventListener('click', (e) => {
+  const btn = e.target.closest?.('.th-sort');
+  if (!btn || !$('#gastosMov').contains(btn)) return;
+  const key = btn.dataset.sort;
+  if (!key) return;
+  if (gastosMovSort.key === key) {
+    gastosMovSort.dir = gastosMovSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    gastosMovSort = { key, dir: key === 'fecha' || key === 'monto' || key === 'hora' ? 'desc' : 'asc' };
+  }
+  renderGastosMovTable();
+});
+
+function catNombre(id) {
+  if (!id) return null;
+  return (gastos?.categories || []).find((c) => c.id === id)?.nombre || id;
+}
+function accountNombre(id) {
+  if (!id) return null;
+  return (gastos?.accounts || []).find((a) => a.id === id)?.nombre || id;
+}
+
+function clearCategoriaEdit() {
+  const form = $('#addCategoria');
+  if (!form) return;
+  form.reset();
+  if ($('#cEditId')) $('#cEditId').value = '';
+  if ($('#cSubmit')) $('#cSubmit').textContent = 'Crear';
+  if ($('#cCancelEdit')) $('#cCancelEdit').hidden = true;
+}
+
+function startCategoriaEdit(c) {
+  if (!c) return;
+  if ($('#cEditId')) $('#cEditId').value = c.id;
+  if ($('#cNombre')) $('#cNombre').value = c.nombre || '';
+  if ($('#cSubmit')) $('#cSubmit').textContent = 'Guardar';
+  if ($('#cCancelEdit')) $('#cCancelEdit').hidden = false;
+  softFocusEdit($('#cNombre'));
+  setSync('Editando categoría');
+}
+
+function renderGastosCats() {
+  withPreservedScroll(() => {
+    if (!gastos) return;
+    const ul = $('#gastosCats');
+    if (!ul) return;
+    const cats = gastos.categories || [];
+    ul.replaceChildren(...cats.map((c) => el('li', {},
+      el('div', { class: 'body' },
+        el('div', { class: 't' }, c.nombre)),
+      el('div', { class: 'row-actions' },
+        iconBtn({
+          label: 'Editar categoría',
+          icon: 'edit',
+          onclick: () => startCategoriaEdit(c),
+        })))));
+    if (!cats.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay categorías.'));
+  });
+}
+function parseUiNamePartsPattern(pattern) {
+  const m = /^nameparts:(?:(\d+):)?(.+)$/i.exec(String(pattern || '').trim());
+  if (!m) return null;
+  return { min: m[1] ? parseInt(m[1], 10) || 2 : 2, tokens: m[2].trim() };
+}
+
+function rulePatternLabel(pattern) {
+  const np = parseUiNamePartsPattern(pattern);
+  if (np) return `partes≥${np.min}: ${np.tokens}`;
+  return pattern || '';
+}
+
+function clearReglaEdit() {
+  const form = $('#addRegla');
+  if (!form) return;
+  form.reset();
+  if ($('#rEditId')) $('#rEditId').value = '';
+  if ($('#rAccount')) $('#rAccount').value = ''; // default: todas las cuentas
+  if ($('#rMatchType')) $('#rMatchType').value = 'contains';
+  if ($('#rSubmit')) $('#rSubmit').textContent = 'Agregar';
+  if ($('#rCancelEdit')) $('#rCancelEdit').hidden = true;
+}
+
+function startReglaEdit(r) {
+  if (!r) return;
+  if ($('#rEditId')) $('#rEditId').value = r.id;
+  const np = parseUiNamePartsPattern(r.pattern);
+  if ($('#rMatchType')) $('#rMatchType').value = np ? 'nameparts' : 'contains';
+  if ($('#rPattern')) $('#rPattern').value = np ? np.tokens : (r.pattern || '');
+  if ($('#rCategory')) $('#rCategory').value = r.category_id || '';
+  if ($('#rAccount')) $('#rAccount').value = r.account_id || '';
+  if ($('#rExclude')) $('#rExclude').checked = !!r.exclude_expense;
+  if ($('#rSubmit')) $('#rSubmit').textContent = 'Guardar';
+  if ($('#rCancelEdit')) $('#rCancelEdit').hidden = false;
+  softFocusEdit($('#rPattern'));
+  setSync('Editando regla');
+}
+
+function ruleSearchHay(r) {
+  const cat = catNombre(r.category_id) || '';
+  const acct = accountNombre(r.account_id) || '';
+  return `${r.pattern || ''} ${cat} ${acct}`.toLowerCase();
+}
+
+function ruleGroupKey(r) {
+  if (r.category_id) return `cat:${r.category_id}`;
+  if (r.exclude_expense) return 'exclude';
+  return 'none';
+}
+
+function ruleGroupMeta(key) {
+  if (key === 'exclude') {
+    return { title: 'No contar como gasto', orden: 9500 };
+  }
+  if (key === 'none') {
+    return { title: 'Sin categoría', orden: 9600 };
+  }
+  const id = key.slice(4);
+  const cat = (gastos?.categories || []).find((c) => c.id === id);
+  return {
+    title: cat?.nombre || catNombre(id) || id,
+    orden: typeof cat?.orden === 'number' ? cat.orden : 5000,
+  };
+}
+
+function deleteRegla(r) {
+  return async () => {
+    if (!confirm(`¿Borrar la regla «${r.pattern}»?`)) return;
+    setSync('Borrando…');
+    const res = await fetch('/api/gastos', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ entity: 'rule', id: r.id }),
+    });
+    if (!res.ok) { setSync('No se pudo borrar'); return; }
+    if ($('#rEditId')?.value === r.id) clearReglaEdit();
+    await loadGastosMeta(true);
+    renderGastosRules();
+    setSync('Regla borrada');
+  };
+}
+
+function renderGastosRules() {
+  withPreservedScroll(() => {
+    if (!gastos) return;
+    const ul = $('#gastosRules');
+    if (!ul) return;
+    const q = ($('#rFilter')?.value || '').trim().toLowerCase();
+    const all = gastos.rules || [];
+    const rules = q ? all.filter((r) => ruleSearchHay(r).includes(q)) : all;
+    if ($('#rFilterCount')) {
+      $('#rFilterCount').textContent = q
+        ? `${rules.length} de ${all.length}`
+        : (all.length ? `${all.length} reglas` : '');
+    }
+
+    const byGroup = new Map();
+    for (const r of rules) {
+      const key = ruleGroupKey(r);
+      if (!byGroup.has(key)) byGroup.set(key, []);
+      byGroup.get(key).push(r);
+    }
+    const groups = [...byGroup.entries()]
+      .map(([key, list]) => {
+        const meta = ruleGroupMeta(key);
+        list.sort((a, b) =>
+          (a.priority - b.priority)
+          || String(a.pattern || '').localeCompare(String(b.pattern || ''), 'es')
+          || String(a.id).localeCompare(String(b.id)));
+        return { key, ...meta, rules: list };
+      })
+      .sort((a, b) => (a.orden - b.orden) || a.title.localeCompare(b.title, 'es'));
+
+    // Auto-expand groups that match search so hits are visible.
+    if (q) {
+      for (const g of groups) gastosRuleGroupsOpen.add(g.key);
+    }
+
+    ul.replaceChildren(...groups.map((g) => {
+      const open = gastosRuleGroupsOpen.has(g.key);
+      const preview = g.rules.slice(0, 6).map((r) => rulePatternLabel(r.pattern)).filter(Boolean);
+      const more = g.rules.length > preview.length ? ` +${g.rules.length - preview.length}` : '';
+      const head = el('button', {
+        type: 'button',
+        class: 'rule-group-head',
+        'aria-expanded': open ? 'true' : 'false',
+        onclick: () => {
+          if (gastosRuleGroupsOpen.has(g.key)) gastosRuleGroupsOpen.delete(g.key);
+          else gastosRuleGroupsOpen.add(g.key);
+          renderGastosRules();
+        },
+      },
+        el('span', { class: 'rule-group-chevron', 'aria-hidden': 'true' }, open ? '▾' : '▸'),
+        el('span', { class: 'rule-group-title' }, g.title),
+        el('span', { class: 'rule-group-count muted small' },
+          `${g.rules.length} regla${g.rules.length === 1 ? '' : 's'}`),
+        (!open && preview.length
+          ? el('span', { class: 'rule-group-preview muted small' },
+            `Si el texto contiene: ${preview.join(', ')}${more}`)
+          : null));
+
+      const body = el('div', {
+        class: 'rule-group-body',
+        hidden: !open,
+      },
+        el('p', { class: 'rule-group-lead muted small' }, 'Si el texto contiene:'),
+        el('div', { class: 'rule-tag-list' },
+          ...g.rules.map((r) => {
+            const acct = accountNombre(r.account_id);
+            const bits = [];
+            if (acct) bits.push(`solo ${acct}`);
+            if (r.exclude_expense) bits.push('excluir gasto');
+            return el('div', { class: 'rule-tag-row' },
+              el('span', { class: 'rule-tag', title: r.pattern }, rulePatternLabel(r.pattern)),
+              bits.length ? el('span', { class: 'rule-tag-meta muted small' }, bits.join(' · ')) : null,
+              el('div', { class: 'row-actions' },
+                iconBtn({
+                  label: `Editar «${r.pattern}»`,
+                  icon: 'edit',
+                  onclick: () => startReglaEdit(r),
+                }),
+                iconBtn({
+                  label: `Borrar «${r.pattern}»`,
+                  icon: 'trash',
+                  danger: true,
+                  onclick: deleteRegla(r),
+                })));
+          })));
+
+      return el('li', { class: 'rule-group' + (open ? ' open' : '') }, head, body);
+    }));
+
+    if (!all.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay reglas.'));
+    else if (!rules.length) ul.append(el('li', { class: 'muted' }, 'Ninguna regla coincide con la búsqueda.'));
+  });
+}
+$('#cCancelEdit')?.addEventListener('click', () => {
+  clearCategoriaEdit();
+  setSync('');
+});
+$('#addCategoria')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nombre = $('#cNombre').value.trim();
+  if (!nombre) return;
+  const editId = ($('#cEditId')?.value || '').trim();
+  const existing = editId ? (gastos?.categories || []).find((x) => x.id === editId) : null;
+  const btn = $('#cSubmit') || e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    const payload = { entity: 'category', nombre };
+    if (editId) {
+      payload.id = editId;
+      if (existing && typeof existing.orden === 'number') payload.orden = existing.orden;
+    }
+    const r = await fetch('/api/gastos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload),
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    clearCategoriaEdit();
+    await loadGastosMeta(true);
+    renderGastosCats();
+    renderGastosRules();
+    fillAccountSelects();
+    setSync(editId ? 'Categoría guardada' : 'Categoría creada');
+  } catch { setSync(editId ? 'No se pudo guardar' : 'No se pudo crear categoría'); }
+  finally { btn.disabled = false; }
+});
+$('#addRegla').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  let pattern = $('#rPattern').value.trim();
+  if (!pattern) return;
+  const matchType = $('#rMatchType')?.value || 'contains';
+  if (matchType === 'nameparts') {
+    if (!/^nameparts:/i.test(pattern)) {
+      const tokens = pattern.replace(/^nameparts:(?:\d+:)?/i, '').trim();
+      if (tokens.split(/\s+/).filter(Boolean).length < 2) {
+        setSync('Partes de nombre: poné al menos 2 palabras');
+        return;
+      }
+      pattern = `nameparts:2:${tokens}`;
+    }
+  }
+  const editId = ($('#rEditId')?.value || '').trim();
+  const existing = editId ? (gastos?.rules || []).find((x) => x.id === editId) : null;
+  const btn = $('#rSubmit') || e.target.querySelector('button[type=submit]');
+  btn.disabled = true;
+  try {
+    const acctVal = ($('#rAccount')?.value || '').trim();
+    const payload = {
+      entity: 'rule',
+      pattern,
+      category_id: $('#rCategory').value || null,
+      account_id: acctVal || null, // null = todas las cuentas
+      exclude_expense: $('#rExclude').checked,
+      priority: matchType === 'nameparts' && !editId ? 45 : undefined,
+    };
+    if (payload.priority === undefined) delete payload.priority;
+    if (editId) {
+      payload.id = editId;
+      if (existing && typeof existing.priority === 'number') payload.priority = existing.priority;
+    }
+    const r = await fetch('/api/gastos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(payload),
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    clearReglaEdit();
+    await loadGastosMeta(true);
+    renderGastosRules();
+    setSync(editId ? 'Regla guardada' : 'Regla agregada');
+  } catch { setSync(editId ? 'No se pudo guardar' : 'No se pudo agregar regla'); }
+  finally { btn.disabled = false; }
+});
+$('#rCancelEdit')?.addEventListener('click', () => {
+  clearReglaEdit();
+  setSync('');
+});
+$('#rFilter')?.addEventListener('input', () => renderGastosRules());
+
+function catRowKey(row) {
+  return `${row.category_id || '__none__'}|${row.currency || ''}`;
+}
+
+function sortedGastosCatRows() {
+  const { key, dir } = gastosCatSort;
+  const mul = dir === 'asc' ? 1 : -1;
+  return gastosCatRows.slice().sort((a, b) => {
+    let va;
+    let vb;
+    if (key === 'total' || key === 'n') {
+      va = Number(a[key]) || 0;
+      vb = Number(b[key]) || 0;
+    } else {
+      va = String(a[key] || '').toLowerCase();
+      vb = String(b[key] || '').toLowerCase();
+    }
+    if (va < vb) return -1 * mul;
+    if (va > vb) return 1 * mul;
+    return String(a.category || '').localeCompare(String(b.category || ''), 'es') * mul;
+  });
+}
+
+function updateCatSortHeaders() {
+  for (const btn of document.querySelectorAll('#gastosCatTbl .th-sort')) {
+    const on = btn.dataset.sort === gastosCatSort.key;
+    btn.classList.toggle('on', on);
+    if (on) btn.dataset.dir = gastosCatSort.dir === 'asc' ? '↑' : '↓';
+    else btn.removeAttribute('data-dir');
+  }
+}
+
+function renderCatDetailInner(txs) {
+  if (!txs.length) return el('p', { class: 'muted small' }, 'Sin movimientos.');
+  return el('table', { class: 'cat-detail-tbl' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, 'Fecha'),
+      el('th', {}, 'Hora'),
+      el('th', {}, 'Cuenta'),
+      el('th', {}, 'Descripción'),
+      el('th', {}, 'Monto'))),
+    el('tbody', {}, ...txs.map((t) => el('tr', {},
+      el('td', {}, String(t.fecha).slice(0, 10)),
+      el('td', { class: 'muted' }, formatGastosHora(t)),
+      el('td', {}, t.account_nombre || t.account_id || ''),
+      el('td', {}, t.descripcion || t.merchant || ''),
+      el('td', { class: 'amt ' + (Number(t.amount) < 0 ? 'neg' : 'pos') }, moneyFmt(t.amount, t.currency))))));
+}
+
+async function loadCatDetailTxs(row) {
+  const key = catRowKey(row);
+  if (gastosCatTxCache.has(key)) return gastosCatTxCache.get(key);
+  const account_id = $('#gResCuenta')?.value || '';
+  const month = $('#gResMes')?.value || '';
+  const qs = new URLSearchParams({
+    view: 'movimientos',
+    include_excluded: '0',
+    spendable_only: '1',
+  });
+  if (account_id) qs.set('account_id', account_id);
+  if (month) qs.set('month', month);
+  if (!row.category_id) qs.set('uncategorized', '1');
+  else qs.set('category_id', row.category_id);
+  const r = await fetch('/api/gastos?' + qs, { credentials: 'same-origin' });
+  if (r.status === 401) { showLogin(); return []; }
+  if (!r.ok) return [];
+  const data = await r.json();
+  const cur = row.currency || '';
+  const txs = (data.transactions || []).filter((t) =>
+    (!cur || t.currency === cur)
+    && !t.is_excluded
+    && !t.is_internal_transfer);
+  gastosCatTxCache.set(key, txs);
+  return txs;
+}
+
+function renderGastosCatTbl() {
+  const tb = $('#gastosCatTbl tbody');
+  if (!tb) return;
+  updateCatSortHeaders();
+  const frag = [];
+  for (const row of sortedGastosCatRows()) {
+    const key = catRowKey(row);
+    const open = gastosCatOpen.has(key);
+    frag.push(el('tr', {
+      class: 'cat-row' + (open ? ' open' : ''),
+      onclick: () => { void toggleCatRow(row); },
+    },
+      el('td', {},
+        el('span', { class: 'cat-chevron', 'aria-hidden': 'true' }, open ? '▾' : '▸'),
+        row.category || 'Sin categoría'),
+      el('td', {}, row.currency),
+      el('td', { class: 'amt ' + (Number(row.total) < 0 ? 'neg' : 'pos') }, moneyFmt(row.total, row.currency)),
+      el('td', {}, row.n)));
+    if (open) {
+      const cached = gastosCatTxCache.get(key);
+      frag.push(el('tr', { class: 'cat-detail' },
+        el('td', { colspan: 4 },
+          cached
+            ? renderCatDetailInner(cached)
+            : el('p', { class: 'muted small' }, 'Cargando movimientos…'))));
+    }
+  }
+  tb.replaceChildren(...frag);
+}
+
+async function toggleCatRow(row) {
+  const key = catRowKey(row);
+  if (gastosCatOpen.has(key)) {
+    gastosCatOpen.delete(key);
+    renderGastosCatTbl();
+    return;
+  }
+  gastosCatOpen.add(key);
+  renderGastosCatTbl();
+  setSync('Cargando categoría…');
+  try {
+    await loadCatDetailTxs(row);
+    if (gastosCatOpen.has(key)) renderGastosCatTbl();
+  } finally {
+    setSync('');
+  }
+}
+
+let gastosCash = null;
+
+function renderGastosCashRec() {
+  const ul = $('#gastosCashRec');
+  if (!ul) return;
+  const rows = gastosCash?.recurring || [];
+  if (!rows.length) {
+    ul.replaceChildren(el('li', { class: 'muted' }, 'Sin fijos todavía.'));
+    return;
+  }
+  ul.replaceChildren(...rows.map((r) => {
+    const paused = r.activo === false;
+    return el('li', { class: paused ? 'done' : '' },
+      el('div', { class: 'body' },
+        el('div', { class: 't' }, r.nombre),
+        el('div', { class: 'd' },
+          `${moneyFmt(Math.abs(Number(r.amount)), r.currency)} · día ${r.day_of_month}` +
+          ` · próximo ${(String(r.next_due || '').match(/\d{4}-\d{2}-\d{2}/) || ['—'])[0]}` +
+          (r.category_nombre ? ` · ${r.category_nombre}` : '') +
+          (paused ? ' · pausado' : '')),
+        r.notes ? el('div', { class: 'id' }, r.notes) : null),
+      el('div', { class: 'row-actions' },
+        iconBtn({
+          label: paused ? 'Reanudar' : 'Pausar',
+          icon: paused ? 'power' : 'pause',
+          onclick: async () => {
+            setSync(paused ? 'Reanudando…' : 'Pausando…');
+            const r2 = await fetch('/api/gastos', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ entity: 'cash_recurring', id: r.id, activo: paused }),
+            });
+            if (!r2.ok) { setSync('Error'); return; }
+            setSync('');
+            loadGastosEfectivo();
+          },
+        }),
+        iconBtn({
+          label: 'Borrar',
+          icon: 'trash',
+          onclick: async () => {
+            if (!confirm(`¿Borrar fijo «${r.nombre}»?`)) return;
+            setSync('Borrando…');
+            const r2 = await fetch('/api/gastos', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ entity: 'cash_recurring', id: r.id }),
+            });
+            if (!r2.ok) { setSync('Error'); return; }
+            setSync('');
+            loadGastosEfectivo();
+          },
+        })));
+  }));
+}
+
+function renderGastosCashTbl() {
+  const tb = $('#gastosCashTbl tbody');
+  if (!tb) return;
+  const txs = gastosCash?.cash_txs || [];
+  if (!txs.length) {
+    tb.replaceChildren(el('tr', {}, el('td', { colspan: '5', class: 'muted' }, 'Sin gastos en efectivo.')));
+    return;
+  }
+  tb.replaceChildren(...txs.map((t) => el('tr', {},
+    el('td', {}, String(t.fecha).slice(0, 10)),
+    el('td', {}, t.descripcion || t.merchant || t.notes || '—'),
+    el('td', { class: 'amt ' + (Number(t.amount) < 0 ? 'neg' : 'pos') }, moneyFmt(t.amount, t.currency)),
+    el('td', {}, t.category_nombre || catNombre(t.category_id) || '—'),
+    el('td', {}, iconBtn({
+      label: 'Borrar',
+      icon: 'trash',
+      onclick: async () => {
+        if (!confirm('¿Borrar este gasto en efectivo?')) return;
+        setSync('Borrando…');
+        const r2 = await fetch('/api/gastos', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ entity: 'cash_tx', id: t.id }),
+        });
+        if (!r2.ok) { setSync('Error'); return; }
+        setSync('');
+        loadGastosEfectivo();
+      },
+    })))));
+}
+
+async function loadGastosEfectivo() {
+  await loadGastosMeta(false);
+  ensureGastosMonthDefaults();
+  setSync('Cargando efectivo…');
+  const r = await fetch('/api/gastos?view=efectivo', { credentials: 'same-origin', cache: 'reload' });
+  if (r.status === 401) return showLogin();
+  if (!r.ok) { setSync('Error efectivo'); return; }
+  const data = await r.json();
+  gastosCash = data;
+  if (data.accounts || data.categories) {
+    gastos = { ...(gastos || {}), accounts: data.accounts, categories: data.categories, rules: data.rules, imports: data.imports };
+    fillAccountSelects();
+  }
+  const matured = data.matured?.created || 0;
+  const meta = $('#gastosCashMeta');
+  if (meta) {
+    meta.textContent = matured
+      ? `Se generaron ${matured} fijo(s) vencido(s).`
+      : `Hoy ${data.today || todayAR()}.`;
+  }
+  renderGastosCashRec();
+  renderGastosCashTbl();
+  setSync('');
+}
+
+$('#addCashTx')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const amount = Number($('#cashAmount')?.value);
+  const fecha = $('#cashFecha')?.value;
+  const category_id = $('#cashCat')?.value || null;
+  const notes = ($('#cashNote')?.value || '').trim();
+  if (!Number.isFinite(amount) || amount <= 0) { setSync('Monto inválido'); return; }
+  if (!fecha) { setSync('Fecha requerida'); return; }
+  setSync('Guardando…');
+  const r = await fetch('/api/gastos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({
+      entity: 'cash_tx',
+      amount,
+      fecha,
+      category_id,
+      notes: notes || null,
+      descripcion: notes || null,
+    }),
+  });
+  if (!r.ok) { setSync('Error al guardar'); return; }
+  $('#cashAmount').value = '';
+  $('#cashNote').value = '';
+  setSync('Guardado');
+  loadGastosEfectivo();
+});
+
+$('#addCashRec')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nombre = ($('#cashRecNombre')?.value || '').trim();
+  const amount = Number($('#cashRecAmount')?.value);
+  const day_of_month = Number($('#cashRecDia')?.value);
+  const category_id = $('#cashRecCat')?.value || null;
+  const notes = ($('#cashRecNote')?.value || '').trim();
+  if (!nombre) { setSync('Nombre requerido'); return; }
+  if (!Number.isFinite(amount) || amount <= 0) { setSync('Monto inválido'); return; }
+  setSync('Guardando fijo…');
+  const r = await fetch('/api/gastos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({
+      entity: 'cash_recurring',
+      nombre,
+      amount,
+      day_of_month,
+      category_id,
+      notes: notes || null,
+    }),
+  });
+  if (!r.ok) { setSync('Error al guardar fijo'); return; }
+  $('#cashRecNombre').value = '';
+  $('#cashRecAmount').value = '';
+  $('#cashRecNote').value = '';
+  setSync('Fijo guardado');
+  loadGastosEfectivo();
+});
+
+async function loadGastosResumen() {
+  await loadGastosMeta(false);
+  const account_id = $('#gResCuenta').value;
+  const month = $('#gResMes').value;
+  const qs = new URLSearchParams({ view: 'resumen' });
+  if (account_id) qs.set('account_id', account_id);
+  if (month) qs.set('month', month);
+  setSync('Cargando resumen…');
+  const r = await fetch('/api/gastos?' + qs, { credentials: 'same-origin' });
+  if (r.status === 401) return showLogin();
+  if (!r.ok) { setSync('Error resumen'); return; }
+  const data = await r.json();
+  const rows = data.resumen || [];
+  let spendArs = 0, spendUsd = 0, incomeArs = 0, incomeUsd = 0;
+  for (const row of rows) {
+    const spend = Math.abs(Number(row.spend) || 0);
+    const income = Number(row.income) || 0;
+    if (row.currency === 'USD') { spendUsd += spend; incomeUsd += income; }
+    else { spendArs += spend; incomeArs += income; }
+  }
+  $('#gastosResumenCards').replaceChildren(
+    el('div', { class: 'card' }, el('h3', {}, 'Gasto ARS'), el('p', {}, moneyFmt(-spendArs, 'ARS'))),
+    el('div', { class: 'card' }, el('h3', {}, 'Gasto USD'), el('p', {}, moneyFmt(-spendUsd, 'USD'))),
+    el('div', { class: 'card' }, el('h3', {}, 'Ingresos ARS'), el('p', {}, moneyFmt(incomeArs, 'ARS'))),
+  );
+  $('#gastosResumenTbl tbody').replaceChildren(...rows.map((row) => el('tr', {},
+    el('td', {}, row.month),
+    el('td', {}, row.currency),
+    el('td', { class: 'amt neg' }, moneyFmt(row.spend, row.currency)),
+    el('td', { class: 'amt pos' }, moneyFmt(row.income, row.currency)),
+    el('td', {}, moneyFmt(row.excluded, row.currency)),
+    el('td', {}, moneyFmt(row.guarded_merpago, row.currency)),
+    el('td', {}, row.n))));
+  gastosCatRows = data.by_category || [];
+  gastosCatOpen.clear();
+  gastosCatTxCache.clear();
+  renderGastosCatTbl();
+  setSync('');
+}
+for (const id of ['#gResCuenta', '#gResMes']) {
+  $(id)?.addEventListener('change', () => { if (gastosSub === 'resumen') loadGastosResumen(); });
+}
+$('#gastosCatTbl')?.addEventListener('click', (e) => {
+  const btn = e.target.closest?.('.th-sort');
+  if (!btn || !$('#gastosCatTbl').contains(btn)) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const key = btn.dataset.sort;
+  if (!key) return;
+  if (gastosCatSort.key === key) {
+    gastosCatSort.dir = gastosCatSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    gastosCatSort = { key, dir: key === 'total' || key === 'n' ? 'asc' : 'asc' };
+  }
+  renderGastosCatTbl();
+});
+
 // ---------- tracker (a demanda, cacheado por versión) ----------
 async function loadTracker() {
   if (tracker) return renderTracker();
@@ -531,16 +1705,17 @@ let ft; for (const id of ['#fEmpresa', '#fEstado', '#fSeccion']) $(id).addEventL
 // ---------- vistas / login ----------
 function show(view) {
   $('#login').hidden = true;
-  for (const v of ['brief', 'meds', 'compras', 'tracker']) $('#view-' + v).hidden = v !== view;
+  for (const v of ['brief', 'meds', 'compras', 'gastos', 'tracker']) $('#view-' + v).hidden = v !== view;
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
   if (view === 'tracker') loadTracker();
   if (view === 'meds') loadMeds(false);
   if (view === 'compras') loadShopping(false);
+  if (view === 'gastos') { loadGastosMeta(false).then(() => showGastosSub(gastosSub)); }
   if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
 }
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => brief && show(b.dataset.view)));
 function showLogin() {
-  for (const v of ['brief', 'meds', 'compras', 'tracker']) $('#view-' + v).hidden = true;
+  for (const v of ['brief', 'meds', 'compras', 'gastos', 'tracker']) $('#view-' + v).hidden = true;
   $('#login').hidden = false; $('#pw').focus();
 }
 $('#loginForm').addEventListener('submit', async (e) => {
@@ -561,7 +1736,7 @@ async function start(fresh) {
   brief = await r.json();
   renderBrief();
   const hash = (location.hash || '').slice(1);
-  show(['tracker', 'meds', 'compras'].includes(hash) ? hash : 'brief');
+  show(['tracker', 'meds', 'compras', 'gastos'].includes(hash) ? hash : 'brief');
   if (Object.keys(pending()).length) flush(); // reenvía lo que quedó de una sesión anterior
 }
 start(false);

@@ -8,3 +8,8 @@
 .applications.json
 node_modules
 .b64
+# Private bank/card samples — never commit
+internal/gastos-samples-private/
+**/gastos-samples-private/
+*.statement.csv
+*account_statement*

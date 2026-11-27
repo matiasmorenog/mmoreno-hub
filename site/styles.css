@@ -70,3 +70,69 @@ details p{margin-top:8px!important;color:var(--mu);font-size:14px}
 #tTable td{overflow-wrap:anywhere}
 .clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .brand{display:flex;align-items:center;gap:10px}.brand img{width:28px;height:28px;flex:none}
+.subtabs{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 14px}
+.subtabs button{border:1px solid var(--bd);background:transparent;color:var(--tx);padding:4px 12px;border-radius:999px;cursor:pointer;font:inherit;font-size:14px}
+.subtabs button.on{background:var(--tx);color:var(--bg)}
+.amt{font-variant-numeric:tabular-nums;white-space:nowrap}
+.amt.neg{color:var(--bad)}.amt.pos{color:var(--ok)}
+.flag{font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid var(--bd);color:var(--mu);margin-right:4px}
+.flag.warn{color:var(--warn);border-color:currentColor}
+.flag.guard{color:var(--bad);border-color:currentColor}
+#gastosPreview td,#gastosMov td,#gastosResumenTbl td,#gastosCatTbl td{font-size:13px}
+#gastosUpload input[type=file]{flex:2;min-width:200px}
+.reglas-form{flex-wrap:wrap;align-items:center}
+.reglas-form label{flex:none}
+.cash-form{flex-wrap:wrap;align-items:center}
+.cash-form label{flex:none}
+.cash-form input[type=number]{width:7rem;flex:none}
+.cash-form input[type=date]{flex:none}
+#gastosCashTbl td{font-size:13px}
+#gastosRules .t{font-weight:500;line-height:1.35}
+#gastosRules li.rule-group{flex-direction:column;align-items:stretch;gap:0;padding:0}
+#gastosRules .rule-group-head{
+  display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;width:100%;
+  padding:14px;border:0;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;
+}
+#gastosRules .rule-group-head:hover{background:color-mix(in srgb, var(--tx) 4%, transparent)}
+#gastosRules .rule-group-chevron{color:var(--mu);width:1em;flex:none}
+#gastosRules .rule-group-title{font-weight:600}
+#gastosRules .rule-group-count{flex:none}
+#gastosRules .rule-group-preview{flex:1 1 100%;padding-left:1.4em}
+#gastosRules .rule-group-body{padding:0 14px 14px 14px;border-top:1px solid var(--bd)}
+#gastosRules .rule-group-lead{margin:10px 0 8px}
+#gastosRules .rule-tag-list{display:flex;flex-direction:column;gap:6px}
+#gastosRules .rule-tag-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+#gastosRules .rule-tag{
+  display:inline-block;font-size:13px;padding:4px 10px;border:1px solid var(--bd);
+  border-radius:8px;background:color-mix(in srgb, var(--tx) 3%, transparent);max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+#gastosRules .rule-tag-meta{flex:1;min-width:0}
+#gastosRules .rule-tag-row .row-actions{margin-left:auto}
+.gastos-mov-filters{align-items:flex-start}
+.acct-filter{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;flex:1 1 100%}
+.acct-chips{display:flex;flex-wrap:wrap;gap:6px}
+.acct-chip{
+  font:inherit;font-size:13px;padding:5px 11px;border-radius:999px;cursor:pointer;
+  border:1px solid var(--bd);background:transparent;color:var(--mu);
+}
+.acct-chip:hover{color:var(--tx);border-color:var(--tx)}
+.acct-chip.on{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.acct-filter-actions{display:flex;gap:4px}
+.ghost.tiny{font:inherit;font-size:12px;padding:2px 8px;border:0;background:transparent;color:var(--mu);cursor:pointer;text-decoration:underline}
+.ghost.tiny:hover{color:var(--tx)}
+#rFilter,#gFiltroTexto{flex:1;min-width:180px;max-width:320px}
+#gastosMov .th-sort,#gastosCatTbl .th-sort{
+  font:inherit;font-weight:600;border:0;background:transparent;color:inherit;
+  padding:0;cursor:pointer;text-align:left;
+}
+#gastosMov .th-sort:hover,#gastosCatTbl .th-sort:hover{color:var(--ac)}
+#gastosMov .th-sort.on::after,#gastosCatTbl .th-sort.on::after{content:attr(data-dir);margin-left:4px;color:var(--mu);font-weight:400}
+#gastosCatTbl .cat-row{cursor:pointer}
+#gastosCatTbl .cat-row:hover td{background:color-mix(in srgb, var(--tx) 4%, transparent)}
+#gastosCatTbl .cat-chevron{display:inline-block;width:1em;color:var(--mu);margin-right:6px}
+#gastosCatTbl .cat-detail td{padding:8px 12px 14px;background:color-mix(in srgb, var(--tx) 2%, transparent)}
+#gastosCatTbl .cat-detail-tbl{width:100%;border-collapse:collapse;font-size:12px}
+#gastosCatTbl .cat-detail-tbl th,#gastosCatTbl .cat-detail-tbl td{padding:4px 6px;border-top:1px solid var(--bd);text-align:left}
+#gastosCatTbl .cat-detail-tbl th{color:var(--mu);font-weight:500;border-top:0}
+#rMatchType{max-width:200px}

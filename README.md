@@ -1,6 +1,6 @@
 # mmoreno-hub
 
-Personal hub for Matias Adrian Moreno Gallo. Tools live as sections of the same app: a **daily job-search brief**, a **medication / supplement checklist**, and a tracker of applications already in motion. A shopping list and other tools may follow.
+Personal hub for Matias Adrian Moreno Gallo. Tools live as sections of the same app: a **daily job-search brief**, a **medication / supplement checklist**, a **shopping list**, a **Gastos** expense tracker (import MP / Santander statements), and a tracker of applications already in motion.
 
 The daily brief stays one section of the hub. It is not a separate product.
 
@@ -11,7 +11,7 @@ This repository is the source. Pushing it does not change that deployment. Brief
 ## Stack
 
 - Static UI: vanilla JavaScript, HTML, and CSS in `site/`
-- API: Vercel Functions in `site/api` (`brief`, `toggle`, `item`, `tracker`, `login`, `meds`, `med-dose`, `shopping`)
+- API: Vercel Functions in `site/api` (`brief`, `toggle`, `item`, `tracker`, `login`, `meds`, `med-dose`, `shopping`, `gastos`, `gastos-import`)
 - Database: Neon Postgres through `@neondatabase/serverless`
 - Runtime: Node.js 22
 
@@ -32,8 +32,13 @@ This repository is the source. Pushing it does not change that deployment. Brief
 | `medications` | Catalog of meds/supplements: `nombre`, optional `notas`, optional free-text `momento` (tag/time; legacy `manana`/`mediodia`/`noche` still shown as labels), `activo`, `orden`. |
 | `medication_doses` | Per-day taken flag (`medication_id`, `fecha`, `tomado`, `tomado_en`). Primary key is idempotent for one dose row per med per calendar day. |
 | `shopping_items` | Shopping list rows: `nombre`, optional `cantidad` / `notas`, `comprado`, `comprado_en`, `orden`. |
+| `accounts` | Expense accounts: MP wallet/card, Santander caja/Visa/Amex. |
+| `categories` | Expense categories (comida, transporte, …). |
+| `category_rules` | Text match rules for category / exclude (own transfers, Merpago* Amex guard). |
+| `imports` | Uploaded statement files keyed by `file_hash` (dedupe). |
+| `transactions` | Parsed movements upserted by `(account_id, fingerprint)`. |
 
-Indexes: `items.done_at`, `applications.empresa_key`, `applications.fecha`, `medications(activo, orden)`, `medication_doses.fecha`.
+Indexes: `items.done_at`, `applications.empresa_key`, `applications.fecha`, `medications(activo, orden)`, `medication_doses.fecha`, `transactions.fecha`, `imports.file_hash`.
 
 “Today” for doses uses `America/Argentina/Buenos_Aires` (same TZ as the brief).
 
@@ -66,7 +71,7 @@ cd site
 npx vercel dev
 ```
 
-Open the local URL. The **Brief** tab loads `GET /api/brief`. Under **Necesita tu atención**, the form posts to `POST /api/item` (creates an `items` row with `seccion = 'atencion'`). Checking an item posts a batch to `POST /api/toggle`. The **Medicación** tab loads `GET /api/meds` (catalog + today’s doses); checkboxes post to `POST /api/med-dose`; catalog create/update/delete use `POST` / `PATCH` / `DELETE /api/meds` (hard delete; dose rows cascade). The **Compras** tab loads `GET /api/shopping`; add/check/delete/clear-bought use `POST` / `PATCH` / `DELETE` / `POST` on `/api/shopping`. The **Tracker** tab loads `GET /api/tracker` on demand.
+Open the local URL. The **Brief** tab loads `GET /api/brief`. Under **Necesita tu atención**, the form posts to `POST /api/item` (creates an `items` row with `seccion = 'atencion'`). Checking an item posts a batch to `POST /api/toggle`. The **Medicación** tab loads `GET /api/meds` (catalog + today’s doses); checkboxes post to `POST /api/med-dose`; catalog create/update/delete use `POST` / `PATCH` / `DELETE /api/meds` (hard delete; dose rows cascade). The **Compras** tab loads `GET /api/shopping`; add/check/delete/clear-bought use `POST` / `PATCH` / `DELETE` / `POST` on `/api/shopping`. The **Gastos** tab uses `GET /api/gastos` (movimientos / resumen / reglas) and `POST /api/gastos-import` (preview → confirm; base64 upload, file-hash dedupe, fingerprint upsert). Parser unit tests: `node --test site/api/_lib/gastos/test-parsers.mjs` (synthetic fixtures only). The **Tracker** tab loads `GET /api/tracker` on demand.
 
 Apply the schema yourself against the database you own, for example:
 
