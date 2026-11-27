@@ -701,7 +701,6 @@ function renderGastosPreview() {
   const tb = $('#gastosPreview tbody');
   tb.replaceChildren(...gastosPreview.txs.slice(0, 200).map((t) => {
     const flags = [];
-    if (t.category_source === 'hourly') flags.push(el('span', { class: 'flag hora' }, 'auto/hora'));
     if (t.is_internal_transfer) flags.push(el('span', { class: 'flag' }, 'interna'));
     if (t.is_excluded) flags.push(el('span', { class: 'flag warn' }, 'excluida'));
     if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'merpago'));
@@ -824,14 +823,12 @@ async function loadGastosMov() {
   }
   const month = $('#gFiltroMes').value;
   const include = $('#gIncluirExcluidos').checked ? '1' : '0';
-  const hourAuto = $('#gSoloHoraAuto')?.checked ? '1' : '0';
   const catVal = $('#gFiltroCategoria')?.value || '';
   const flow = $('#gFiltroFlow')?.value || '';
   const textQ = ($('#gFiltroTexto')?.value || '').trim();
   const qs = new URLSearchParams({ view: 'movimientos', include_excluded: include });
   if (accountIds.length) qs.set('account_ids', accountIds.join(','));
   if (month) qs.set('month', month);
-  if (hourAuto === '1') qs.set('hour_auto', '1');
   if (catVal === '__none__') qs.set('uncategorized', '1');
   else if (catVal) qs.set('category_id', catVal);
   if (flow === 'ingresos' || flow === 'gastos') qs.set('flow', flow);
@@ -879,7 +876,6 @@ async function loadGastosMov() {
     }, el('option', { value: '' }, '—'));
     for (const c of cats) sel.append(el('option', { value: c.id, selected: c.id === t.category_id }, c.nombre));
     const flags = [];
-    if (t.category_source === 'hourly') flags.push(el('span', { class: 'flag hora', title: 'Clasificada por horario 00–07:59' }, 'auto/hora'));
     if (t.category_source === 'history') flags.push(el('span', { class: 'flag', title: 'Heredada de merchant previo' }, 'hist'));
     if (t.is_excluded) flags.push(el('span', { class: 'flag warn' }, 'excl'));
     if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'mp'));
@@ -906,7 +902,7 @@ async function loadGastosMov() {
   }));
   setSync('');
 }
-for (const id of ['#gFiltroCategoria', '#gFiltroFlow', '#gFiltroMes', '#gIncluirExcluidos', '#gSoloHoraAuto']) {
+for (const id of ['#gFiltroCategoria', '#gFiltroFlow', '#gFiltroMes', '#gIncluirExcluidos']) {
   $(id)?.addEventListener('change', () => { if (gastosSub === 'movimientos') loadGastosMov(); });
 }
 $('#gFiltroTexto')?.addEventListener('input', () => {
