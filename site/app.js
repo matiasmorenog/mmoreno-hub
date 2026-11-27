@@ -409,6 +409,27 @@ function medPendRow(it) {
       el('div', { class: 'd' }, formatMedFecha(it.fecha, meds && meds.hoy) + (it.notas ? ` · ${it.notas}` : ''))),
     ...tags);
 }
+function clearMedEdit() {
+  const form = $('#addMed');
+  if (!form) return;
+  form.reset();
+  if ($('#mEditId')) $('#mEditId').value = '';
+  if ($('#mSubmit')) $('#mSubmit').textContent = 'Agregar';
+  if ($('#mCancelEdit')) $('#mCancelEdit').hidden = true;
+}
+
+function startMedEdit(it) {
+  if (!it) return;
+  if ($('#mEditId')) $('#mEditId').value = it.id;
+  if ($('#mNombre')) $('#mNombre').value = it.nombre || '';
+  if ($('#mNotas')) $('#mNotas').value = it.notas || '';
+  if ($('#mMomento')) $('#mMomento').value = it.momento || '';
+  if ($('#mSubmit')) $('#mSubmit').textContent = 'Guardar';
+  if ($('#mCancelEdit')) $('#mCancelEdit').hidden = false;
+  softFocusEdit($('#mNombre'));
+  setSync('Editando medicación');
+}
+
 function medCatalogRow(it) {
   const toggleLabel = it.activo ? 'Desactivar' : 'Activar';
   return el('li', { class: it.activo ? '' : 'done', 'data-med-cat': it.id },
@@ -418,6 +439,11 @@ function medCatalogRow(it) {
       el('div', { class: 'id' }, it.id)),
     it.momento ? el('span', { class: 'tag' }, MOMENTO_LABEL[it.momento] || it.momento) : null,
     el('div', { class: 'row-actions' },
+      iconBtn({
+        label: 'Editar',
+        icon: 'edit',
+        onclick: () => startMedEdit(it),
+      }),
       iconBtn({
         label: toggleLabel,
         icon: it.activo ? 'pause' : 'power',
@@ -509,20 +535,43 @@ async function deleteMed(id, nombre) {
       if (k === id || k.startsWith(id + '@')) delete recent[k];
     }
     LS.set('mb_med_recent', recent);
+    if (($('#mEditId')?.value || '').trim() === id) clearMedEdit();
     renderMeds();
     setSync('Borrado');
   } catch { setSync('No se pudo borrar'); }
 }
+$('#mCancelEdit')?.addEventListener('click', () => {
+  clearMedEdit();
+  setSync('');
+});
 $('#addMed').addEventListener('submit', async (e) => {
   e.preventDefault();
   const nombre = $('#mNombre').value.trim();
   if (!nombre) return;
   const notas = $('#mNotas').value.trim() || null;
   const momento = $('#mMomento').value.trim() || null;
-  const btn = e.target.querySelector('button');
+  const editId = ($('#mEditId')?.value || '').trim();
+  const btn = $('#mSubmit') || e.target.querySelector('button[type=submit]');
   btn.disabled = true;
-  setSync('Agregando…');
+  setSync(editId ? 'Guardando…' : 'Agregando…');
   try {
+    if (editId) {
+      const r = await fetch('/api/meds', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: editId, nombre, notas, momento }),
+        credentials: 'same-origin',
+      });
+      if (r.status === 401) return showLogin();
+      if (!r.ok) throw new Error(r.status);
+      const updated = await r.json();
+      const it = meds?.items.find((m) => m.id === editId);
+      if (it) Object.assign(it, updated);
+      clearMedEdit();
+      renderMeds();
+      setSync('Guardado');
+      return;
+    }
     const r = await fetch('/api/meds', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -535,11 +584,11 @@ $('#addMed').addEventListener('submit', async (e) => {
     if (!meds) meds = { hoy: '', tz: 'America/Argentina/Buenos_Aires', items: [], pendientes: [] };
     meds.items.push(it);
     meds.items.sort((a, b) => (a.orden - b.orden) || a.id.localeCompare(b.id));
-    e.target.reset();
+    clearMedEdit();
     renderMeds();
     setSync('Agregado');
     $('#mNombre').focus();
-  } catch { setSync('No se pudo agregar'); }
+  } catch { setSync(editId ? 'No se pudo guardar' : 'No se pudo agregar'); }
   finally { btn.disabled = false; }
 });
 
