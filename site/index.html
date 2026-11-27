@@ -104,10 +104,20 @@
 
     <div id="gastos-movimientos">
       <div class="filters">
-        <select id="gFiltroCuenta"><option value="">Todas las cuentas</option></select>
+        <label class="muted small" for="gFiltroCuentas">Cuentas</label>
+        <select id="gFiltroCuentas" multiple size="4" aria-label="Cuentas (podés elegir varias)"></select>
+        <select id="gFiltroCategoria" aria-label="Categoría">
+          <option value="">Todas las categorías</option>
+          <option value="__none__">Sin clasificar</option>
+        </select>
+        <select id="gFiltroFlow" aria-label="Ingresos o gastos">
+          <option value="">Ingresos y gastos</option>
+          <option value="gastos">Solo gastos</option>
+          <option value="ingresos">Solo ingresos</option>
+        </select>
         <input id="gFiltroMes" type="month" aria-label="Mes">
         <label class="muted small"><input type="checkbox" id="gIncluirExcluidos"> Incluir excluidos</label>
-        <label class="muted small"><input type="checkbox" id="gSoloHoraAuto"> Solo auto-clasificadas por horario</label>
+        <label class="muted small"><input type="checkbox" id="gSoloHoraAuto"> Solo auto por horario</label>
         <span id="gMovCount" class="muted"></span>
       </div>
       <div class="tablewrap"><table class="tbl" id="gastosMov">
@@ -119,18 +129,20 @@
     <div id="gastos-reglas" hidden>
       <h2>Categorías</h2>
       <form id="addCategoria" class="add-row">
-        <input id="cNombre" type="text" placeholder="Nueva categoría" required maxlength="80" autocomplete="off">
-        <button type="submit">Crear categoría</button>
+        <input id="cNombre" type="text" placeholder="Nombre de la categoría" required maxlength="80" autocomplete="off">
+        <button type="submit">Crear</button>
       </form>
       <ul id="gastosCats" class="items"></ul>
-      <h2>Reglas</h2>
-      <p class="muted small">Al categorizar un movimiento a mano se crea una regla por merchant para próximas importaciones.</p>
-      <form id="addRegla" class="add-row">
-        <input id="rPattern" type="text" placeholder="Texto a buscar (merchant/desc)" required maxlength="200" autocomplete="off">
-        <select id="rCategory"><option value="">Sin categoría</option></select>
-        <select id="rAccount"><option value="">Todas las cuentas</option></select>
-        <label class="muted small"><input type="checkbox" id="rExclude"> Excluir gasto</label>
-        <button type="submit">Agregar regla</button>
+      <h2>Reglas automáticas</h2>
+      <p class="muted small">Si el texto del movimiento contiene cierta palabra, le asignamos una categoría. También se crean solas cuando categorizás a mano.</p>
+      <form id="addRegla" class="add-row reglas-form">
+        <label class="muted small" for="rPattern">Si el texto contiene</label>
+        <input id="rPattern" type="text" placeholder="ej. YPF, Spotify, CEAMSE" required maxlength="200" autocomplete="off">
+        <label class="muted small" for="rCategory">→ categoría</label>
+        <select id="rCategory"><option value="">Elegir categoría</option></select>
+        <select id="rAccount" aria-label="Solo en esta cuenta (opcional)"><option value="">Todas las cuentas</option></select>
+        <label class="muted small"><input type="checkbox" id="rExclude"> No contar como gasto</label>
+        <button type="submit">Agregar</button>
       </form>
       <ul id="gastosRules" class="items"></ul>
     </div>

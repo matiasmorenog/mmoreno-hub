@@ -2,11 +2,14 @@ export const CAT_UBER_DIDI = 'ingresos-uber-didi';
 export const CAT_PEAJES = 'peajes';
 export const CAT_RENDIMIENTOS = 'rendimientos';
 
-/** How category was assigned. Hourly is weakest: never beats manual/rule. */
+/** How category was assigned. Hourly is weakest: never beats manual/rule/history. */
 export const CAT_SRC_MANUAL = 'manual';
 export const CAT_SRC_RULE = 'rule';
 export const CAT_SRC_BUILTIN = 'builtin';
+export const CAT_SRC_HISTORY = 'history';
 export const CAT_SRC_HOURLY = 'hourly';
+
+const HISTORY_OK = new Set([CAT_SRC_MANUAL, CAT_SRC_RULE, CAT_SRC_BUILTIN, CAT_SRC_HISTORY, null]);
 
 /** Normalize text used for rule matching / learning. */
 export function matchHaystack(tx) {
@@ -31,6 +34,35 @@ export function learnPatternFromTx(tx) {
   return null;
 }
 
+/**
+ * Stable merchant key for history matching.
+ * Prefer commerce/merchant/seller id from raw; else normalized merchant text.
+ */
+export function normalizeMerchantKey(tx) {
+  const raw = tx?.raw && typeof tx.raw === 'object' ? tx.raw : {};
+  for (const k of ['commerce_id', 'merchant_id', 'seller_id', 'store_id', 'collector_id']) {
+    const v = raw[k];
+    if (v != null && String(v).trim()) return `id:${String(v).trim().toLowerCase()}`;
+  }
+  let m = String(tx?.merchant || '').trim().toLowerCase();
+  if (!m) {
+    m = String(tx?.descripcion || '')
+      .replace(
+        /^(consumo|reembolso|impuesto|transferencia recibida|transferencia enviada|pago con qr|pago autom[aá]tico|pago de suscripci[oó]n|pago)\s*:?\s*/iu,
+        '',
+      )
+      .trim()
+      .toLowerCase();
+  }
+  if (!m) return null;
+  // Collapse APPYPF / Merpago*APPYPF station variants → same fuel key
+  if (/appypf/i.test(m) && /combust/i.test(m)) m = 'appypf combust';
+  else if (/merpago.*appypf/i.test(m)) m = 'appypf combust';
+  m = m.replace(/\s+/g, ' ').replace(/[^\p{L}\p{N}\s+.*'-]/gu, '').trim();
+  if (m.length < 3) return null;
+  return `m:${m.slice(0, 120)}`;
+}
+
 function horaLocal(tx) {
   if (typeof tx.hora_local === 'number' && tx.hora_local >= 0 && tx.hora_local <= 23) return tx.hora_local;
   const raw = tx.raw && typeof tx.raw === 'object' ? tx.raw : null;
@@ -39,16 +71,15 @@ function horaLocal(tx) {
 }
 
 function setCat(out, categoryId, source) {
-  if (out.category_id) return out; // never overwrite existing (manual/rule/builtin/hourly)
+  if (out.category_id) return out;
   out.category_id = categoryId;
   out.category_source = source;
   return out;
 }
 
 /**
- * Built-in classifiers (run after DB rules, fill category if still empty).
- * Priority: existing category (manual/rule) > merchant/DB rules > builtins (DLOCAL…) > hourly 00–07:59.
- * Hourly is initial quick classify only — never beats manual or learned merchant rules.
+ * Built-in classifiers (run after DB rules + history, fill if still empty).
+ * Priority: existing > merchant/DB rules > history > builtins > hourly 00–07:59.
  */
 export function applyBuiltins(tx) {
   const out = { ...tx };
@@ -64,7 +95,6 @@ export function applyBuiltins(tx) {
     setCat(out, 'transferencias', CAT_SRC_BUILTIN);
   }
 
-  // DLOCAL = DiDi/Uber driver income (Matias). EBANX not auto unless asked.
   if (
     out.account_id === 'mp_wallet' &&
     out.tx_type === 'transferencia_recibida' &&
@@ -73,7 +103,6 @@ export function applyBuiltins(tx) {
     setCat(out, CAT_UBER_DIDI, CAT_SRC_BUILTIN);
   }
 
-  // MP remunerated-account interest.
   if (
     out.account_id === 'mp_wallet' &&
     (out.tx_type === 'rendimientos' || /^rendimientos\b/i.test(hay))
@@ -89,8 +118,6 @@ export function applyBuiltins(tx) {
     }
   }
 
-  // Night window 00:00–07:59 America/Argentina/Buenos_Aires — weakest auto classify.
-  // Only fills empty category; never overwrites manual/rule/builtin.
   const h = horaLocal(out);
   if (
     out.account_id === 'mp_wallet' &&
@@ -106,11 +133,46 @@ export function applyBuiltins(tx) {
 }
 
 /**
- * Apply category / exclude rules per transaction (never whole-file).
- * Match merchant + description text only — NOT tx_type.
- * Merchant/DB rules run before builtins/hourly and always win over hourly.
+ * Build history map from prior categorized rows.
+ * Key: `${account_id}::${merchantKey}` → { category_id }
+ * Skips hourly-only sources (weak).
  */
-export function applyRules(txs, rules) {
+export function buildMerchantHistoryMap(priorRows) {
+  const map = new Map();
+  const sorted = (priorRows || []).slice().sort((a, b) => {
+    const ta = a.actualizado ? new Date(a.actualizado).getTime() : 0;
+    const tb = b.actualizado ? new Date(b.actualizado).getTime() : 0;
+    return tb - ta;
+  });
+  for (const row of sorted) {
+    if (!row?.category_id) continue;
+    const src = row.category_source ?? null;
+    if (src === CAT_SRC_HOURLY) continue;
+    if (src != null && !HISTORY_OK.has(src)) continue;
+    const key = normalizeMerchantKey(row);
+    if (!key) continue;
+    const mapKey = `${row.account_id || ''}::${key}`;
+    if (map.has(mapKey)) continue; // keep most recent
+    map.set(mapKey, { category_id: row.category_id });
+  }
+  return map;
+}
+
+function applyHistory(tx, historyMap) {
+  if (!historyMap || !historyMap.size || tx.category_id) return tx;
+  const key = normalizeMerchantKey(tx);
+  if (!key) return tx;
+  const hit = historyMap.get(`${tx.account_id || ''}::${key}`);
+  if (!hit?.category_id) return tx;
+  return setCat({ ...tx }, hit.category_id, CAT_SRC_HISTORY);
+}
+
+/**
+ * Apply category / exclude rules per transaction (never whole-file).
+ * Order: DB rules → merchant history → builtins → hourly.
+ */
+export function applyRules(txs, rules, opts = {}) {
+  const historyMap = opts.historyMap || null;
   const active = (rules || [])
     .filter((r) => r.activo !== false)
     .slice()
@@ -143,6 +205,7 @@ export function applyRules(txs, rules) {
       break;
     }
 
+    out = applyHistory(out, historyMap);
     out = applyBuiltins(out);
     return out;
   });

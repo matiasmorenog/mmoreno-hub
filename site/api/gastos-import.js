@@ -2,7 +2,13 @@ import { db, guard, body } from './_lib.js';
 import { parseExpenseFile } from './_lib/gastos/parse.js';
 import { newId } from './_lib/gastos/fingerprint.js';
 import { detectMpSettlement, parseMpSettlement } from './_lib/gastos/mp-settlement.js';
-import { CAT_UBER_DIDI, CAT_SRC_HOURLY, CAT_SRC_BUILTIN, CAT_SRC_MANUAL } from './_lib/gastos/rules.js';
+import {
+  CAT_UBER_DIDI,
+  CAT_SRC_HOURLY,
+  CAT_SRC_BUILTIN,
+  CAT_SRC_MANUAL,
+  buildMerchantHistoryMap,
+} from './_lib/gastos/rules.js';
 
 export const config = {
   api: { bodyParser: { sizeLimit: '6mb' } },
@@ -229,6 +235,14 @@ export default async function handler(req, res) {
   if (settBuf) settlementText = settBuf.toString('utf8');
 
   const rules = await loadRules(sql);
+  const priorCats = await sql`
+    SELECT account_id, merchant, descripcion, category_id, category_source, raw, actualizado
+    FROM transactions
+    WHERE category_id IS NOT NULL
+      AND (category_source IS NULL OR category_source IN ('manual', 'rule', 'builtin', 'history'))
+    ORDER BY actualizado DESC NULLS LAST
+    LIMIT 4000`;
+  const historyMap = buildMerchantHistoryMap(priorCats);
 
   let parsed;
   try {
@@ -237,6 +251,7 @@ export default async function handler(req, res) {
       account_id: accountHint || undefined,
       rules,
       settlementText: settlementText || undefined,
+      historyMap,
     });
   } catch (e) {
     return res.status(400).json({ error: e.code || 'parse_error', message: e.message });

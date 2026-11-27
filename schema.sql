@@ -230,6 +230,7 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO categories (id, nombre, orden) VALUES
   ('comida', 'Comida', 10),
   ('transporte', 'Transporte', 20),
+  ('combustible', 'Combustible', 25),
   ('suscripciones', 'Suscripciones', 30),
   ('servicios', 'Servicios', 40),
   ('transferencias', 'Transferencias', 50),
@@ -254,5 +255,23 @@ INSERT INTO category_rules (id, pattern, category_id, account_id, priority, excl
   ('amex-peaje-ausol', 'ausol', 'peajes', 'santander_amex', 6, false, true),
   ('amex-peaje-auoeste', 'auoeste', 'peajes', 'santander_amex', 6, false, true),
   ('amex-peaje-aubasa', 'aubasa', 'peajes', 'santander_amex', 6, false, true),
-  ('amex-peaje-ausa', 'ausa', 'peajes', 'santander_amex', 7, false, true)
+  ('amex-peaje-ausa', 'ausa', 'peajes', 'santander_amex', 7, false, true),
+  ('seed-ypf-fuel', 'YPF', 'combustible', NULL, 20, false, true),
+  ('seed-appypf-fuel', 'APPYPF', 'combustible', NULL, 20, false, true),
+  ('seed-puma-fuel', 'Puma Energy', 'combustible', NULL, 20, false, true),
+  ('seed-spotify', 'Spotify', 'suscripciones', NULL, 22, false, true),
+  ('seed-youtube', 'Youtube', 'suscripciones', NULL, 22, false, true),
+  ('seed-meli-plus', 'Meli+', 'suscripciones', 'mp_wallet', 22, false, true),
+  ('seed-bitwarden', 'Bitwarden', 'suscripciones', NULL, 22, false, true),
+  ('seed-openai', 'OpenAI', 'suscripciones', NULL, 22, false, true),
+  ('seed-cursor', 'Cursor', 'suscripciones', NULL, 22, false, true),
+  ('seed-ceamse-peaje', 'CEAMSE', 'peajes', NULL, 21, false, true),
+  ('seed-movistar', 'Movistar', 'servicios', NULL, 23, false, true),
+  ('seed-edenor', 'Edenor', 'servicios', NULL, 23, false, true),
+  ('seed-coto', 'Coto', 'comida', NULL, 24, false, true),
+  ('seed-mcdonald', 'McDonald', 'comida', NULL, 24, false, true),
+  ('seed-impuesto-sellos', 'Impuesto de sellos', 'impuestos', NULL, 15, false, true),
+  ('seed-iva-digital', 'IVA servicios digitales', 'impuestos', NULL, 15, false, true),
+  ('seed-iibb-digital', 'IIBB servicios digitales', 'impuestos', NULL, 15, false, true),
+  ('seed-saldo-anterior', 'Saldo anterior', 'otros', NULL, 12, true, true)
 ON CONFLICT (id) DO NOTHING;

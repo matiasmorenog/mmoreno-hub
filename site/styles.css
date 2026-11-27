@@ -81,3 +81,7 @@ details p{margin-top:8px!important;color:var(--mu);font-size:14px}
 .flag.hora{color:var(--ac);border-color:currentColor}
 #gastosPreview td,#gastosMov td,#gastosResumenTbl td,#gastosCatTbl td{font-size:13px}
 #gastosUpload input[type=file]{flex:2;min-width:200px}
+#gFiltroCuentas{min-width:160px;max-width:220px;height:auto;min-height:4.5rem}
+.reglas-form{flex-wrap:wrap;align-items:center}
+.reglas-form label{flex:none}
+#gastosRules .t{font-weight:500;line-height:1.35}

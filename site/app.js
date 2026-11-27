@@ -557,11 +557,23 @@ const moneyFmt = (n, cur = 'ARS') => {
 };
 function fillAccountSelects() {
   if (!gastos?.accounts) return;
-  for (const sel of [$('#gFiltroCuenta'), $('#gResCuenta'), $('#rAccount')]) {
+  const multi = $('#gFiltroCuentas');
+  if (multi) {
+    const selected = new Set([...multi.selectedOptions].map((o) => o.value));
+    const hadSelection = selected.size > 0;
+    multi.replaceChildren();
+    for (const a of gastos.accounts) {
+      multi.append(el('option', {
+        value: a.id,
+        selected: hadSelection ? selected.has(a.id) : true,
+      }, a.nombre));
+    }
+  }
+  for (const sel of [$('#gResCuenta'), $('#rAccount')]) {
     if (!sel) continue;
     const cur = sel.value;
     const first = sel.options[0];
-    sel.replaceChildren(first);
+    sel.replaceChildren(first || el('option', { value: '' }, 'Todas las cuentas'));
     for (const a of gastos.accounts) sel.append(el('option', { value: a.id }, a.nombre));
     sel.value = [...sel.options].some((o) => o.value === cur) ? cur : '';
   }
@@ -572,6 +584,26 @@ function fillAccountSelects() {
     for (const c of gastos.categories || []) catSel.append(el('option', { value: c.id }, c.nombre));
     catSel.value = [...catSel.options].some((o) => o.value === cur) ? cur : '';
   }
+  const filtroCat = $('#gFiltroCategoria');
+  if (filtroCat) {
+    const cur = filtroCat.value || '';
+    filtroCat.replaceChildren(
+      el('option', { value: '' }, 'Todas las categorías'),
+      el('option', { value: '__none__' }, 'Sin clasificar'),
+    );
+    for (const c of gastos.categories || []) filtroCat.append(el('option', { value: c.id }, c.nombre));
+    if ([...filtroCat.options].some((o) => o.value === cur)) filtroCat.value = cur;
+  }
+}
+
+/** Empty or all selected → no account filter. Partial multi-select → account_ids. */
+function selectedAccountIds() {
+  const multi = $('#gFiltroCuentas');
+  if (!multi) return [];
+  const ids = [...multi.selectedOptions].map((o) => o.value).filter(Boolean);
+  if (!ids.length) return [];
+  if (ids.length === (gastos?.accounts || []).length) return [];
+  return ids;
 }
 function showGastosSub(sub) {
   gastosSub = sub;
@@ -725,14 +757,19 @@ $('#gastosConfirm').addEventListener('click', async () => {
 
 async function loadGastosMov() {
   await loadGastosMeta(false);
-  const account_id = $('#gFiltroCuenta').value;
+  const accountIds = selectedAccountIds();
   const month = $('#gFiltroMes').value;
   const include = $('#gIncluirExcluidos').checked ? '1' : '0';
   const hourAuto = $('#gSoloHoraAuto')?.checked ? '1' : '0';
+  const catVal = $('#gFiltroCategoria')?.value || '';
+  const flow = $('#gFiltroFlow')?.value || '';
   const qs = new URLSearchParams({ view: 'movimientos', include_excluded: include });
-  if (account_id) qs.set('account_id', account_id);
+  if (accountIds.length) qs.set('account_ids', accountIds.join(','));
   if (month) qs.set('month', month);
   if (hourAuto === '1') qs.set('hour_auto', '1');
+  if (catVal === '__none__') qs.set('uncategorized', '1');
+  else if (catVal) qs.set('category_id', catVal);
+  if (flow === 'ingresos' || flow === 'gastos') qs.set('flow', flow);
   setSync('Cargando movimientos…');
   const r = await fetch('/api/gastos?' + qs, { credentials: 'same-origin' });
   if (r.status === 401) return showLogin();
@@ -770,6 +807,7 @@ async function loadGastosMov() {
     for (const c of cats) sel.append(el('option', { value: c.id, selected: c.id === t.category_id }, c.nombre));
     const flags = [];
     if (t.category_source === 'hourly') flags.push(el('span', { class: 'flag hora', title: 'Clasificada por horario 00–07:59' }, 'auto/hora'));
+    if (t.category_source === 'history') flags.push(el('span', { class: 'flag', title: 'Heredada de merchant previo' }, 'hist'));
     if (t.is_excluded) flags.push(el('span', { class: 'flag warn' }, 'excl'));
     if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'mp'));
     return el('tr', {},
@@ -795,8 +833,17 @@ async function loadGastosMov() {
   }));
   setSync('');
 }
-for (const id of ['#gFiltroCuenta', '#gFiltroMes', '#gIncluirExcluidos', '#gSoloHoraAuto']) {
+for (const id of ['#gFiltroCuentas', '#gFiltroCategoria', '#gFiltroFlow', '#gFiltroMes', '#gIncluirExcluidos', '#gSoloHoraAuto']) {
   $(id)?.addEventListener('change', () => { if (gastosSub === 'movimientos') loadGastosMov(); });
+}
+
+function catNombre(id) {
+  if (!id) return null;
+  return (gastos?.categories || []).find((c) => c.id === id)?.nombre || id;
+}
+function accountNombre(id) {
+  if (!id) return null;
+  return (gastos?.accounts || []).find((a) => a.id === id)?.nombre || id;
 }
 
 function renderGastosCats() {
@@ -806,38 +853,43 @@ function renderGastosCats() {
   const cats = gastos.categories || [];
   ul.replaceChildren(...cats.map((c) => el('li', {},
     el('div', { class: 'body' },
-      el('div', { class: 't' }, c.nombre),
-      el('div', { class: 'd id' }, c.id)))));
-  if (!cats.length) ul.append(el('li', { class: 'muted' }, 'Sin categorías.'));
+      el('div', { class: 't' }, c.nombre)))));
+  if (!cats.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay categorías.'));
 }
 function renderGastosRules() {
   if (!gastos) return;
   const ul = $('#gastosRules');
   const rules = gastos.rules || [];
-  ul.replaceChildren(...rules.map((r) => el('li', {},
-    el('div', { class: 'body' },
-      el('div', { class: 't' }, r.pattern),
-      el('div', { class: 'd' }, [
-        r.account_id || 'todas',
-        r.category_id || 'sin cat',
-        r.exclude_expense ? 'excluir' : 'categorizar',
-        'p' + r.priority,
-      ].join(' · '))),
-    iconBtn({
-      label: 'Borrar regla',
-      icon: 'trash',
-      danger: true,
-      onclick: async () => {
-        const res = await fetch('/api/gastos', {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ entity: 'rule', id: r.id }),
-        });
-        if (res.ok) { await loadGastosMeta(true); renderGastosRules(); }
-      },
-    }))));
-  if (!rules.length) ul.append(el('li', { class: 'muted' }, 'Sin reglas todavía.'));
+  ul.replaceChildren(...rules.map((r) => {
+    const cat = catNombre(r.category_id);
+    const acct = accountNombre(r.account_id);
+    let line = `Si el texto contiene «${r.pattern}»`;
+    if (cat) line += ` → ${cat}`;
+    else if (r.exclude_expense) line += ' → no contar como gasto';
+    else line += ' → (sin categoría)';
+    const bits = [];
+    if (acct) bits.push(`solo en ${acct}`);
+    if (r.exclude_expense && cat) bits.push('no contar como gasto');
+    return el('li', {},
+      el('div', { class: 'body' },
+        el('div', { class: 't' }, line),
+        bits.length ? el('div', { class: 'd' }, bits.join(' · ')) : null),
+      iconBtn({
+        label: 'Borrar regla',
+        icon: 'trash',
+        danger: true,
+        onclick: async () => {
+          const res = await fetch('/api/gastos', {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ entity: 'rule', id: r.id }),
+          });
+          if (res.ok) { await loadGastosMeta(true); renderGastosRules(); }
+        },
+      }));
+  }));
+  if (!rules.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay reglas.'));
 }
 $('#addCategoria')?.addEventListener('submit', async (e) => {
   e.preventDefault();

@@ -27,6 +27,9 @@ import {
   CAT_SRC_RULE,
   CAT_SRC_BUILTIN,
   CAT_SRC_MANUAL,
+  CAT_SRC_HISTORY,
+  normalizeMerchantKey,
+  buildMerchantHistoryMap,
 } from './rules.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -245,6 +248,44 @@ test('merchant rule beats hourly Uber; manual category never overwritten by hour
   }], [])[0];
   assert.equal(manual.category_id, 'transporte');
   assert.equal(manual.category_source, CAT_SRC_MANUAL);
+});
+
+test('merchant history prefers commerce_id and beats hourly; skips hourly priors', () => {
+  const prior = buildMerchantHistoryMap([
+    {
+      account_id: 'mp_card',
+      merchant: 'YPF Demo',
+      category_id: 'combustible',
+      category_source: CAT_SRC_MANUAL,
+      actualizado: '2026-11-01T12:00:00Z',
+      raw: { commerce_id: 'COM-YPF-1' },
+    },
+    {
+      account_id: 'mp_wallet',
+      merchant: 'Night Passenger Demo',
+      category_id: CAT_UBER_DIDI,
+      category_source: CAT_SRC_HOURLY,
+      actualizado: '2026-11-02T12:00:00Z',
+    },
+  ]);
+  assert.equal(prior.get('mp_card::id:com-ypf-1').category_id, 'combustible');
+  assert.equal(prior.has('mp_wallet::m:night passenger demo'), false);
+
+  const keyed = {
+    account_id: 'mp_card',
+    merchant: 'Other label',
+    descripcion: 'Consumo',
+    tx_type: 'consumo',
+    category_id: null,
+    raw: { commerce_id: 'COM-YPF-1' },
+  };
+  const out = applyRules([keyed], [], { historyMap: prior })[0];
+  assert.equal(out.category_id, 'combustible');
+  assert.equal(out.category_source, CAT_SRC_HISTORY);
+
+  const k1 = normalizeMerchantKey({ merchant: 'APPYPF 00128 COMBUST' });
+  const k2 = normalizeMerchantKey({ merchant: 'APPYPF 00019 COMBUSTIB' });
+  assert.equal(k1, k2);
 });
 
 test('learnPatternFromTx prefers merchant', () => {

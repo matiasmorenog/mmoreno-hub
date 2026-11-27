@@ -24,8 +24,8 @@ export function accountForFormat(fmt) {
   return ACCOUNT_BY_FORMAT[fmt] || null;
 }
 
-function withRules(parsed, rules) {
-  parsed.txs = applyRules(parsed.txs, rules);
+function withRules(parsed, rules, historyMap) {
+  parsed.txs = applyRules(parsed.txs, rules, { historyMap: historyMap || null });
   return parsed;
 }
 
@@ -51,13 +51,14 @@ function applySettlementJoin(parsed, settlementText, warnings) {
 /**
  * Detect format and parse file buffer.
  * @param {Buffer} buf
- * @param {{ filename?: string, account_id?: string, rules?: any[], settlementText?: string }} opts
+ * @param {{ filename?: string, account_id?: string, rules?: any[], settlementText?: string, historyMap?: Map }} opts
  */
 export async function parseExpenseFile(buf, opts = {}) {
   const filename = opts.filename || 'upload';
   const lower = filename.toLowerCase();
   const file_hash = sha256(buf);
   const warnings = [];
+  const historyMap = opts.historyMap || null;
 
   // CSV / text
   const asText = buf.toString('utf8');
@@ -74,7 +75,7 @@ export async function parseExpenseFile(buf, opts = {}) {
       account_id: opts.account_id || 'mp_wallet',
     });
     parsed = applySettlementJoin(parsed, opts.settlementText, warnings);
-    return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
+    return { file_hash, filename, ...withRules(parsed, opts.rules, historyMap), warnings: [...warnings, ...parsed.warnings] };
   }
 
   // XLSX
@@ -85,7 +86,7 @@ export async function parseExpenseFile(buf, opts = {}) {
     const parsed = parseSantanderCajaXlsx(buf, {
       account_id: opts.account_id || 'santander_caja',
     });
-    return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
+    return { file_hash, filename, ...withRules(parsed, opts.rules, historyMap), warnings: [...warnings, ...parsed.warnings] };
   }
 
   // PDF — Santander card BEFORE MP card (MP detector used to false-positive on Visa/Amex).
@@ -116,13 +117,13 @@ export async function parseExpenseFile(buf, opts = {}) {
       const parsed = await parseSantanderAmexPdf(buf);
       parsed.account_id = opts.account_id || parsed.account_id;
       parsed.txs = parsed.txs.map((t) => ({ ...t, account_id: parsed.account_id }));
-      return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
+      return { file_hash, filename, ...withRules(parsed, opts.rules, historyMap), warnings: [...warnings, ...parsed.warnings] };
     }
     if (kind === 'santander_visa') {
       const parsed = await parseSantanderVisaPdf(buf);
       parsed.account_id = opts.account_id || parsed.account_id;
       parsed.txs = parsed.txs.map((t) => ({ ...t, account_id: parsed.account_id }));
-      return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
+      return { file_hash, filename, ...withRules(parsed, opts.rules, historyMap), warnings: [...warnings, ...parsed.warnings] };
     }
 
     if (detectMpCardPdf(text) || opts.account_id === 'mp_card' || /mp-tarjeta|mercadopago.*tarjeta/i.test(filename)) {
@@ -133,12 +134,12 @@ export async function parseExpenseFile(buf, opts = {}) {
         yearHint,
         monthHint: ym ? Number(ym[2]) : undefined,
       });
-      return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
+      return { file_hash, filename, ...withRules(parsed, opts.rules, historyMap), warnings: [...warnings, ...parsed.warnings] };
     }
 
     if (/Merpago\*/i.test(text)) {
       const parsed = await parseSantanderAmexPdf(buf);
-      return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
+      return { file_hash, filename, ...withRules(parsed, opts.rules, historyMap), warnings: [...warnings, ...parsed.warnings] };
     }
 
     throw Object.assign(new Error('unsupported_pdf'), { code: 'unsupported_pdf' });

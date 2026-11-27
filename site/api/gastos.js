@@ -125,208 +125,61 @@ async function fetchByCategory(sql, account_id, month) {
     LIMIT 40`;
 }
 
-async function fetchTxs(sql, account_id, month, includeExcluded, hourAutoOnly) {
-  // neon tagged templates can't build dynamic WHERE easily — branch on filters.
-  if (account_id && month && hourAutoOnly) {
-    return includeExcluded
-      ? sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE t.account_id = ${account_id} AND to_char(t.fecha, 'YYYY-MM') = ${month}
-            AND t.category_source = 'hourly'
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
-      : sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE t.account_id = ${account_id} AND to_char(t.fecha, 'YYYY-MM') = ${month}
-            AND t.category_source = 'hourly' AND NOT t.is_excluded
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
-  }
-  if (account_id && month) {
-    return includeExcluded
-      ? sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE t.account_id = ${account_id} AND to_char(t.fecha, 'YYYY-MM') = ${month}
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
-      : sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE t.account_id = ${account_id} AND to_char(t.fecha, 'YYYY-MM') = ${month}
-            AND NOT t.is_excluded
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
-  }
-  if (account_id && hourAutoOnly) {
-    return includeExcluded
-      ? sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE t.account_id = ${account_id} AND t.category_source = 'hourly'
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
-      : sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE t.account_id = ${account_id} AND t.category_source = 'hourly' AND NOT t.is_excluded
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
-  }
-  if (account_id) {
-    return includeExcluded
-      ? sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE t.account_id = ${account_id}
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
-      : sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE t.account_id = ${account_id} AND NOT t.is_excluded
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
-  }
-  if (month && hourAutoOnly) {
-    return includeExcluded
-      ? sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE to_char(t.fecha, 'YYYY-MM') = ${month} AND t.category_source = 'hourly'
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
-      : sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE to_char(t.fecha, 'YYYY-MM') = ${month} AND t.category_source = 'hourly' AND NOT t.is_excluded
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
-  }
-  if (month) {
-    return includeExcluded
-      ? sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE to_char(t.fecha, 'YYYY-MM') = ${month}
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
-      : sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE to_char(t.fecha, 'YYYY-MM') = ${month} AND NOT t.is_excluded
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
-  }
-  if (hourAutoOnly) {
-    return includeExcluded
-      ? sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE t.category_source = 'hourly'
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
-      : sql`
-          SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-                 t.descripcion, t.merchant,
-                 t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-                 t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-                 c.nombre AS category_nombre, a.nombre AS account_nombre
-          FROM transactions t
-          LEFT JOIN categories c ON c.id = t.category_id
-          LEFT JOIN accounts a ON a.id = t.account_id
-          WHERE t.category_source = 'hourly' AND NOT t.is_excluded
-          ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
-  }
-  return includeExcluded
-    ? sql`
-        SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-               t.descripcion, t.merchant,
-               t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-               t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-               c.nombre AS category_nombre, a.nombre AS account_nombre
-        FROM transactions t
-        LEFT JOIN categories c ON c.id = t.category_id
-        LEFT JOIN accounts a ON a.id = t.account_id
-        ORDER BY t.fecha DESC, t.id DESC LIMIT 500`
-    : sql`
-        SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
-               t.descripcion, t.merchant,
-               t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
-               t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
-               c.nombre AS category_nombre, a.nombre AS account_nombre
-        FROM transactions t
-        LEFT JOIN categories c ON c.id = t.category_id
-        LEFT JOIN accounts a ON a.id = t.account_id
-        WHERE NOT t.is_excluded
-        ORDER BY t.fecha DESC, t.id DESC LIMIT 500`;
+/**
+ * @param {{
+ *   accountIds?: string[],
+ *   month?: string|null,
+ *   includeExcluded?: boolean,
+ *   hourAutoOnly?: boolean,
+ *   uncategorizedOnly?: boolean,
+ *   categoryId?: string|null,
+ *   flow?: 'ingresos'|'gastos'|null,
+ * }} f
+ */
+async function fetchTxs(sql, f = {}) {
+  const accountIds = Array.isArray(f.accountIds) ? f.accountIds.filter(Boolean) : [];
+  const month = f.month || null;
+  const includeExcluded = !!f.includeExcluded;
+  const hourAutoOnly = !!f.hourAutoOnly;
+  const uncategorizedOnly = !!f.uncategorizedOnly;
+  const categoryId = f.categoryId || null;
+  const flow = f.flow === 'ingresos' || f.flow === 'gastos' ? f.flow : null;
+
+  const accountFilter = accountIds.length
+    ? sql`AND t.account_id IN ${accountIds}`
+    : sql``;
+  const monthFilter = month ? sql`AND to_char(t.fecha, 'YYYY-MM') = ${month}` : sql``;
+  const excludedFilter = includeExcluded ? sql`` : sql`AND NOT t.is_excluded`;
+  const hourFilter = hourAutoOnly ? sql`AND t.category_source = 'hourly'` : sql``;
+  const uncatFilter = uncategorizedOnly ? sql`AND t.category_id IS NULL` : sql``;
+  const catFilter = categoryId && !uncategorizedOnly
+    ? sql`AND t.category_id = ${categoryId}`
+    : sql``;
+  const flowFilter = flow === 'ingresos'
+    ? sql`AND t.amount > 0`
+    : flow === 'gastos'
+      ? sql`AND t.amount < 0`
+      : sql``;
+
+  return sql`
+    SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
+           t.descripcion, t.merchant,
+           t.tx_type, t.amount, t.currency, t.amount_ars, t.amount_usd, t.category_id, t.category_source,
+           t.is_internal_transfer, t.is_excluded, t.double_count_guard, t.notes,
+           c.nombre AS category_nombre, a.nombre AS account_nombre
+    FROM transactions t
+    LEFT JOIN categories c ON c.id = t.category_id
+    LEFT JOIN accounts a ON a.id = t.account_id
+    WHERE true
+      ${accountFilter}
+      ${monthFilter}
+      ${excludedFilter}
+      ${hourFilter}
+      ${uncatFilter}
+      ${catFilter}
+      ${flowFilter}
+    ORDER BY t.fecha DESC, t.id DESC
+    LIMIT 500`;
 }
 
 export default async function handler(req, res) {
@@ -338,9 +191,16 @@ export default async function handler(req, res) {
     const q = req.query || {};
     const view = typeof q.view === 'string' ? q.view : 'movimientos';
     const account_id = typeof q.account_id === 'string' && q.account_id ? q.account_id : null;
+    const accountIdsRaw = typeof q.account_ids === 'string' ? q.account_ids : '';
+    const accountIds = accountIdsRaw
+      ? accountIdsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+      : (account_id ? [account_id] : []);
     const month = typeof q.month === 'string' && /^\d{4}-\d{2}$/.test(q.month) ? q.month : null;
     const includeExcluded = q.include_excluded === '1';
     const hourAutoOnly = q.hour_auto === '1' || q.category_source === 'hourly';
+    const uncategorizedOnly = q.uncategorized === '1' || q.sin_clasificar === '1';
+    const categoryId = typeof q.category_id === 'string' && q.category_id ? q.category_id : null;
+    const flow = q.flow === 'ingresos' || q.flow === 'gastos' ? q.flow : null;
 
     const [accounts, categories, rules, imports] = await Promise.all([
       sql`SELECT id, nombre, tipo, moneda_default, activo, orden FROM accounts WHERE activo = true ORDER BY orden, id`,
@@ -354,14 +214,23 @@ export default async function handler(req, res) {
     }
 
     if (view === 'resumen') {
+      const resumenAccount = accountIds.length === 1 ? accountIds[0] : account_id;
       const [resumen, by_category] = await Promise.all([
-        fetchResumen(sql, account_id, month),
-        fetchByCategory(sql, account_id, month),
+        fetchResumen(sql, resumenAccount, month),
+        fetchByCategory(sql, resumenAccount, month),
       ]);
       return res.status(200).json({ accounts, categories, rules, imports, resumen, by_category });
     }
 
-    const transactions = await fetchTxs(sql, account_id, month, includeExcluded, hourAutoOnly);
+    const transactions = await fetchTxs(sql, {
+      accountIds,
+      month,
+      includeExcluded,
+      hourAutoOnly,
+      uncategorizedOnly,
+      categoryId,
+      flow,
+    });
     return res.status(200).json({ accounts, categories, rules, imports, transactions });
   }
 
