@@ -219,6 +219,13 @@ ALTER TABLE transactions ADD COLUMN IF NOT EXISTS category_source text;
 CREATE INDEX IF NOT EXISTS transactions_category_source_idx ON transactions (category_source)
   WHERE category_source IS NOT NULL;
 
+-- Merge legacy category `combustible` → `transporte` ("Combustible y transporte").
+-- Idempotent: safe on fresh DBs and on DBs that already merged.
+UPDATE categories SET nombre = 'Combustible y transporte', orden = 20 WHERE id = 'transporte';
+UPDATE transactions SET category_id = 'transporte' WHERE category_id = 'combustible';
+UPDATE category_rules SET category_id = 'transporte' WHERE category_id = 'combustible';
+DELETE FROM categories WHERE id = 'combustible';
+
 INSERT INTO accounts (id, nombre, tipo, moneda_default, orden) VALUES
   ('mp_wallet', 'Mercado Pago billetera', 'mp_wallet', 'ARS', 10),
   ('mp_card', 'Mercado Pago tarjeta', 'mp_card', 'ARS', 20),
@@ -229,8 +236,7 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO categories (id, nombre, orden) VALUES
   ('comida', 'Comida', 10),
-  ('transporte', 'Transporte', 20),
-  ('combustible', 'Combustible', 25),
+  ('transporte', 'Combustible y transporte', 20),
   ('suscripciones', 'Suscripciones', 30),
   ('servicios', 'Servicios', 40),
   ('transferencias', 'Transferencias', 50),
@@ -256,9 +262,9 @@ INSERT INTO category_rules (id, pattern, category_id, account_id, priority, excl
   ('amex-peaje-auoeste', 'auoeste', 'peajes', 'santander_amex', 6, false, true),
   ('amex-peaje-aubasa', 'aubasa', 'peajes', 'santander_amex', 6, false, true),
   ('amex-peaje-ausa', 'ausa', 'peajes', 'santander_amex', 7, false, true),
-  ('seed-ypf-fuel', 'YPF', 'combustible', NULL, 20, false, true),
-  ('seed-appypf-fuel', 'APPYPF', 'combustible', NULL, 20, false, true),
-  ('seed-puma-fuel', 'Puma Energy', 'combustible', NULL, 20, false, true),
+  ('seed-ypf-fuel', 'YPF', 'transporte', NULL, 20, false, true),
+  ('seed-appypf-fuel', 'APPYPF', 'transporte', NULL, 20, false, true),
+  ('seed-puma-fuel', 'Puma Energy', 'transporte', NULL, 20, false, true),
   ('seed-spotify', 'Spotify', 'suscripciones', NULL, 22, false, true),
   ('seed-youtube', 'Youtube', 'suscripciones', NULL, 22, false, true),
   ('seed-meli-plus', 'Meli+', 'suscripciones', 'mp_wallet', 22, false, true),

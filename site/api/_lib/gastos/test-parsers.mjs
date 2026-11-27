@@ -255,7 +255,7 @@ test('merchant history prefers commerce_id and beats hourly; skips hourly priors
     {
       account_id: 'mp_card',
       merchant: 'YPF Demo',
-      category_id: 'combustible',
+      category_id: 'transporte',
       category_source: CAT_SRC_MANUAL,
       actualizado: '2026-11-01T12:00:00Z',
       raw: { commerce_id: 'COM-YPF-1' },
@@ -268,7 +268,7 @@ test('merchant history prefers commerce_id and beats hourly; skips hourly priors
       actualizado: '2026-11-02T12:00:00Z',
     },
   ]);
-  assert.equal(prior.get('mp_card::id:com-ypf-1').category_id, 'combustible');
+  assert.equal(prior.get('mp_card::id:com-ypf-1').category_id, 'transporte');
   assert.equal(prior.has('mp_wallet::m:night passenger demo'), false);
 
   const keyed = {
@@ -280,7 +280,7 @@ test('merchant history prefers commerce_id and beats hourly; skips hourly priors
     raw: { commerce_id: 'COM-YPF-1' },
   };
   const out = applyRules([keyed], [], { historyMap: prior })[0];
-  assert.equal(out.category_id, 'combustible');
+  assert.equal(out.category_id, 'transporte');
   assert.equal(out.category_source, CAT_SRC_HISTORY);
 
   const k1 = normalizeMerchantKey({ merchant: 'APPYPF 00128 COMBUST' });
