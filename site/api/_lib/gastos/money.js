@@ -1,9 +1,17 @@
-/** Parse AR locale amounts: "1.234,56" / "-20.000,00" / "74,74" → number */
+/** Strip currency markers; keep leading minus (`-$ 1.234,56`, `$-1.234,56`). */
+function stripCurrency(raw) {
+  let s = String(raw).trim();
+  s = s.replace(/^\s*U\$S\s*/iu, '').replace(/^\s*US\$\s*/iu, '');
+  // -$123 / -$ 123 / $-123 / $123
+  s = s.replace(/^\s*-\s*\$\s*/u, '-').replace(/^\s*\$\s*-/u, '-').replace(/^\s*\$\s*/u, '');
+  return s;
+}
+
+/** Parse AR locale amounts: "1.234,56" / "-20.000,00" / "74,74" / "-$790,59" → number */
 export function parseArAmount(raw) {
   if (raw == null) return null;
-  let s = String(raw).trim();
+  let s = stripCurrency(raw);
   if (!s || s === '-') return null;
-  s = s.replace(/^\s*\$\s*/u, '').replace(/^\s*U\$S\s*/iu, '').replace(/^\s*US\$\s*/iu, '');
   s = s.replace(/\s/g, '').replace(/\./g, '').replace(',', '.');
   const n = Number(s);
   return Number.isFinite(n) ? n : null;
@@ -11,9 +19,8 @@ export function parseArAmount(raw) {
 
 export function parseFlexibleAmount(raw) {
   if (raw == null) return null;
-  let s = String(raw).trim();
+  let s = stripCurrency(raw);
   if (!s) return null;
-  s = s.replace(/^\s*\$\s*/u, '').replace(/^\s*U\$S\s*/iu, '').replace(/^\s*US\$\s*/iu, '');
   s = s.replace(/\s/g, '');
   if (/\d,\d{2}$/.test(s) && s.includes('.')) {
     // 1.234,56

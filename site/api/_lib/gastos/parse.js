@@ -1,6 +1,7 @@
 import { detectMpAccountStatement, parseMpAccountStatement } from './mp-account.js';
 import { detectMpSettlement, joinSettlementTimes, parseMpSettlement } from './mp-settlement.js';
 import { detectSantanderCajaXlsx, parseSantanderCajaXlsx } from './santander-caja.js';
+import { parseSantanderCajaResumenPdf } from './santander-caja-resumen.js';
 import {
   detectSantanderCardKind,
   detectSantanderCuentaResumen,
@@ -16,6 +17,7 @@ const ACCOUNT_BY_FORMAT = {
   mp_account_statement: 'mp_wallet',
   mp_card_pdf: 'mp_card',
   santander_caja_xlsx: 'santander_caja',
+  santander_caja_resumen_pdf: 'santander_caja',
   santander_visa_pdf: 'santander_visa',
   santander_amex_pdf: 'santander_amex',
 };
@@ -93,15 +95,26 @@ export async function parseExpenseFile(buf, opts = {}) {
   if (lower.endsWith('.pdf') || buf.slice(0, 5).toString() === '%PDF-') {
     const text = await pdfToText(buf);
 
-    // Cuenta resumen PDF is secondary — primary caja source is XLSX.
+    // Cuenta resumen PDF → caja movements (XLSX still preferred when available).
+    // Filename patterns: *-resumen-*, cuenta-resumen, resumen-cuenta.
     if (
-      /cuenta-resumen|resumen-cuenta/i.test(filename) ||
-      (detectSantanderCuentaResumen(text) && opts.account_id !== 'santander_visa' && opts.account_id !== 'santander_amex')
+      opts.account_id !== 'santander_visa' &&
+      opts.account_id !== 'santander_amex' &&
+      opts.account_id !== 'mp_card' &&
+      (
+        /cuenta-resumen|resumen-cuenta|cuenta-.*-resumen|resumen-.*cuenta/i.test(filename) ||
+        detectSantanderCuentaResumen(text)
+      )
     ) {
-      throw Object.assign(
-        new Error('santander_cuenta_resumen_use_xlsx'),
-        { code: 'santander_cuenta_resumen_use_xlsx' },
-      );
+      const parsed = await parseSantanderCajaResumenPdf(buf, {
+        account_id: opts.account_id || 'santander_caja',
+      });
+      return {
+        file_hash,
+        filename,
+        ...withRules(parsed, opts.rules, historyMap),
+        warnings: [...warnings, ...parsed.warnings],
+      };
     }
 
     const kindFromName = /amex/i.test(filename)

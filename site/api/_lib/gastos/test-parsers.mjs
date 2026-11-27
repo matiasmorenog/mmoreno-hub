@@ -12,6 +12,8 @@ import {
 } from './mp-settlement.js';
 import { parseExpenseFile } from './parse.js';
 import { parseSantanderCajaXlsx } from './santander-caja.js';
+import { parseSantanderCajaResumenText } from './santander-caja-resumen.js';
+import { parseFlexibleAmount } from './money.js';
 import {
   detectSantanderCardKind,
   parseSantanderCardText,
@@ -89,6 +91,51 @@ test('santander caja xlsx synthetic', () => {
   assert.equal(parsed.txs.length, 3);
   assert.equal(parsed.txs[0].amount, -1500);
   assert.equal(parsed.txs[2].amount, -3.5);
+});
+
+test('parseFlexibleAmount handles -$ AR forms', () => {
+  assert.equal(parseFlexibleAmount('-$ 1.234,56'), -1234.56);
+  assert.equal(parseFlexibleAmount('-$790,59'), -790.59);
+  assert.equal(parseFlexibleAmount('$-790,59'), -790.59);
+  assert.equal(parseFlexibleAmount('$ 0,06'), 0.06);
+});
+
+test('santander caja resumen PDF text synthetic', () => {
+  const text = `
+Mi resumen de cuenta
+DEMO USER
+Cuenta 000-0000/0
+Período de movimientos
+Desde: 21/08/26
+Hasta: 24/09/26
+Movimientos en pesos
+Fecha Comprobante Movimiento Caja de Ahorro en pesos Cuenta Corriente en pesos Saldo en cuenta
+21/08/26 Saldo Inicial $ 100,00 $ 0,00 $ 100,00
+01/09/26 111111 Pago tarjeta de credito visa
+Deb. automatico 01/09/2026 part 999
+-$ 50,00 -$ 50,00
+06/09/26 222222 Transf recibida cvu mismo titular
+De demo holder / mercado pago /1234 5678
+$ 200,00 $ 150,00
+08/09/26 Impuesto de sellos -$ 1,50 $ 148,50
+Movimientos en dólares
+No tenés movimientos en dólares en este período.
+Tarjeta Santander
+Visa crédito
+01/09/26 333333 Cine fan black demo $ 10,00
+`;
+  const parsed = parseSantanderCajaResumenText(text);
+  assert.equal(parsed.source_format, 'santander_caja_resumen_pdf');
+  assert.equal(parsed.txs.length, 3);
+  assert.equal(parsed.txs[0].fecha, '2026-09-01');
+  assert.equal(parsed.txs[0].amount, -50);
+  assert.equal(parsed.txs[1].fecha, '2026-09-06');
+  assert.equal(parsed.txs[1].amount, 200);
+  assert.equal(parsed.txs[2].fecha, '2026-09-08');
+  assert.equal(parsed.txs[2].amount, -1.5);
+  // Must not pick up Visa section after movimientos en dólares
+  assert.ok(!parsed.txs.some((t) => /Cine fan/i.test(t.descripcion)));
+  assert.ok(!parsed.txs.some((t) => /Saldo Inicial/i.test(t.descripcion)));
 });
 
 test('santander amex merpago double-count guard + peajes', () => {
