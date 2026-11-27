@@ -1,6 +1,12 @@
 import crypto from 'node:crypto';
 import { db, guard, body } from './_lib.js';
-import { learnPatternFromTx, CAT_SRC_MANUAL, CAT_SRC_RULE } from './_lib/gastos/rules.js';
+import {
+  learnPatternFromTx,
+  normalizeRulePattern,
+  rulePatternKey,
+  CAT_SRC_MANUAL,
+  CAT_SRC_RULE,
+} from './_lib/gastos/rules.js';
 
 function slugId(prefix, nombre) {
   const base =
@@ -15,11 +21,11 @@ function slugId(prefix, nombre) {
 }
 
 function learnedRuleId(accountId, pattern) {
-  const h = crypto.createHash('sha256').update(`${accountId || ''}|${pattern.toLowerCase()}`).digest('hex').slice(0, 12);
-  const slug = String(pattern)
+  const key = rulePatternKey(pattern);
+  const h = crypto.createHash('sha256').update(`${accountId || ''}|${key}`).digest('hex').slice(0, 12);
+  const slug = String(key)
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
-    .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 24) || 'm';
@@ -282,7 +288,7 @@ export default async function handler(req, res) {
     let learned = null;
     let propagated = 0;
     if (learn && hasCat && category_id) {
-      const pattern = learnPatternFromTx(tx);
+      const pattern = normalizeRulePattern(learnPatternFromTx(tx) || '');
       if (pattern && pattern.length >= 3) {
         const ruleId = learnedRuleId(tx.account_id, pattern);
         const ruleRows = await sql`
@@ -297,6 +303,7 @@ export default async function handler(req, res) {
           RETURNING id, pattern, category_id, account_id, priority, exclude_expense, activo`;
         learned = ruleRows[0] || null;
         // Apply to uncategorized OR hourly-auto matches — never overwrite other manual/rule.
+        // ILIKE is case-insensitive (Moreno ≡ MORENO).
         const like = `%${pattern}%`;
         const prop = await sql`
           UPDATE transactions SET
@@ -324,14 +331,26 @@ export default async function handler(req, res) {
   if (req.method === 'POST') {
     const b = body(req);
     if (b.entity === 'rule') {
-      const pattern = typeof b.pattern === 'string' ? b.pattern.trim().slice(0, 200) : '';
+      const pattern = normalizeRulePattern(typeof b.pattern === 'string' ? b.pattern : '');
       if (!pattern) return res.status(400).json({ error: 'pattern' });
-      const id = typeof b.id === 'string' && b.id ? b.id : slugId('rule', pattern);
       const category_id = typeof b.category_id === 'string' ? b.category_id : null;
       const account_id = typeof b.account_id === 'string' ? b.account_id : null;
       const priority =
         typeof b.priority === 'number' && Number.isFinite(b.priority) ? Math.trunc(b.priority) : 100;
       const exclude_expense = !!b.exclude_expense;
+      const pkey = rulePatternKey(pattern);
+      const acctKey = account_id || '';
+      // Reuse existing row when pattern matches case-insensitively (same account scope).
+      let id = typeof b.id === 'string' && b.id ? b.id : '';
+      if (!id) {
+        const existing = await sql`
+          SELECT id FROM category_rules
+          WHERE LOWER(TRIM(regexp_replace(pattern, '\\s+', ' ', 'g'))) = ${pkey}
+            AND COALESCE(account_id, '') = ${acctKey}
+          ORDER BY id ASC
+          LIMIT 1`;
+        id = existing[0]?.id || slugId('rule', pattern);
+      }
       const rows = await sql`
         INSERT INTO category_rules (id, pattern, category_id, account_id, priority, exclude_expense, activo)
         VALUES (${id}, ${pattern}, ${category_id}, ${account_id}, ${priority}, ${exclude_expense}, true)

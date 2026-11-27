@@ -30,6 +30,8 @@ import {
   CAT_SRC_HISTORY,
   normalizeMerchantKey,
   buildMerchantHistoryMap,
+  rulePatternKey,
+  normalizeRulePattern,
 } from './rules.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -316,6 +318,38 @@ test('applyRules category pattern on wallet row', () => {
     { id: 'r1', pattern: 'YPF', category_id: 'transporte', account_id: null, priority: 10, exclude_expense: false, activo: true },
   ]);
   assert.equal(out[0].category_id, 'transporte');
+});
+
+test('rule patterns match case-insensitively (Moreno ≡ MORENO)', () => {
+  assert.equal(rulePatternKey('Moreno Matias'), rulePatternKey('MORENO MATIAS'));
+  assert.equal(rulePatternKey('  Moreno   Matias '), 'moreno matias');
+  assert.equal(normalizeRulePattern('MORENO  MATIAS'), 'MORENO MATIAS');
+
+  const tx = {
+    account_id: 'mp_wallet',
+    merchant: 'MORENO MATIAS',
+    descripcion: 'Transferencia enviada MORENO MATIAS',
+    tx_type: 'transferencia_enviada',
+    category_id: null,
+    category_source: null,
+    is_excluded: false,
+    is_internal_transfer: false,
+    double_count_guard: false,
+  };
+  const out = applyRules([tx], [
+    {
+      id: 'own-mp-moreno-matias',
+      pattern: 'Moreno Matias',
+      category_id: 'transferencias',
+      account_id: 'mp_wallet',
+      priority: 10,
+      exclude_expense: true,
+      activo: true,
+    },
+  ])[0];
+  assert.equal(out.category_id, 'transferencias');
+  assert.equal(out.is_excluded, true);
+  assert.equal(out.is_internal_transfer, true);
 });
 
 test('Transferencia recibida catch-all is weak; friend learned rule wins', () => {

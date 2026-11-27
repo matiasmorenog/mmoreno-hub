@@ -11,25 +11,38 @@ export const CAT_SRC_HOURLY = 'hourly';
 
 const HISTORY_OK = new Set([CAT_SRC_MANUAL, CAT_SRC_RULE, CAT_SRC_BUILTIN, CAT_SRC_HISTORY, null]);
 
+/** Collapse whitespace for stored rule patterns (case preserved for display). */
+export function normalizeRulePattern(s) {
+  return String(s || '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 200);
+}
+
+/** Case-insensitive identity key for rules («Moreno Matias» ≡ «MORENO MATIAS»). */
+export function rulePatternKey(s) {
+  return normalizeRulePattern(s).toLowerCase();
+}
+
 /** Normalize text used for rule matching / learning. */
 export function matchHaystack(tx) {
   const desc = String(tx.descripcion || '')
     .replace(/^(Consumo|Reembolso|Impuesto)\s*:\s*/i, '')
     .trim();
   const merchant = String(tx.merchant || '').trim();
-  return `${merchant} ${desc}`.toLowerCase().replace(/\s+/g, ' ').trim();
+  return rulePatternKey(`${merchant} ${desc}`);
 }
 
 /** Pattern to learn from a manual categorization. Prefer merchant. */
 export function learnPatternFromTx(tx) {
-  const merchant = String(tx.merchant || '').trim();
+  const merchant = normalizeRulePattern(tx.merchant || '');
   if (merchant.length >= 3) return merchant.slice(0, 120);
-  const desc = String(tx.descripcion || '')
-    .replace(
+  const desc = normalizeRulePattern(
+    String(tx.descripcion || '').replace(
       /^(Consumo|Reembolso|Impuesto|Transferencia recibida|Transferencia enviada|Pago con QR|Pago autom[aá]tico|Pago de suscripci[oó]n|Pago)\s*:?\s*/iu,
       '',
-    )
-    .trim();
+    ),
+  );
   if (desc.length >= 3) return desc.slice(0, 120);
   return null;
 }
@@ -185,7 +198,7 @@ export function applyRules(txs, rules, opts = {}) {
 
     for (const rule of active) {
       if (rule.account_id && rule.account_id !== out.account_id) continue;
-      const pat = String(rule.pattern || '').trim().toLowerCase();
+      const pat = rulePatternKey(rule.pattern);
       if (pat.length < 3) continue;
       if (!hay.includes(pat)) continue;
 

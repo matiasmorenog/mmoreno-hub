@@ -253,8 +253,8 @@ ON CONFLICT (id) DO NOTHING;
 -- DLOCAL = DiDi/Uber driver income on MP wallet. Peajes = Amex Merpago* toll operators.
 -- Rendimientos = MP remunerated-account interest.
 INSERT INTO category_rules (id, pattern, category_id, account_id, priority, exclude_expense, activo) VALUES
+  -- Matching is case-insensitive («Moreno Matias» ≡ «MORENO MATIAS»); keep one rule only.
   ('own-mp-moreno-matias', 'Moreno Matias', 'transferencias', 'mp_wallet', 10, true, true),
-  ('own-mp-moreno-upper', 'MORENO MATIAS', 'transferencias', 'mp_wallet', 10, true, true),
   ('guard-amex-merpago', 'Merpago', NULL, 'santander_amex', 5, true, true),
   ('mp-dlocal-uber-didi', 'DLOCAL', 'ingresos-uber-didi', 'mp_wallet', 8, false, true),
   ('mp-rendimientos', 'Rendimientos', 'rendimientos', 'mp_wallet', 9, false, true),
@@ -296,3 +296,6 @@ ON CONFLICT (id) DO UPDATE SET
   exclude_expense = EXCLUDED.exclude_expense,
   activo = true,
   actualizado = now();
+
+-- Drop legacy case-duplicate own-transfer rule (matcher is case-insensitive).
+DELETE FROM category_rules WHERE id = 'own-mp-moreno-upper';
