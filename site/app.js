@@ -11,6 +11,7 @@ let brief = null, timer = null, tracker = null, meds = null, medTimer = null, sh
 let gastos = null, gastosPreview = null, gastosFileB64 = null, gastosFileName = null, gastosSettlementB64 = null, gastosSub = 'movimientos';
 /** Selected account ids for Movimientos filter. null = all (default). */
 let gastosAcctSelected = null;
+let gastosMovSearchTimer = null;
 
 function formatGastosHora(t) {
   if (t == null) return '—';
@@ -803,6 +804,7 @@ async function loadGastosMov() {
   const hourAuto = $('#gSoloHoraAuto')?.checked ? '1' : '0';
   const catVal = $('#gFiltroCategoria')?.value || '';
   const flow = $('#gFiltroFlow')?.value || '';
+  const textQ = ($('#gFiltroTexto')?.value || '').trim();
   const qs = new URLSearchParams({ view: 'movimientos', include_excluded: include });
   if (accountIds.length) qs.set('account_ids', accountIds.join(','));
   if (month) qs.set('month', month);
@@ -810,6 +812,7 @@ async function loadGastosMov() {
   if (catVal === '__none__') qs.set('uncategorized', '1');
   else if (catVal) qs.set('category_id', catVal);
   if (flow === 'ingresos' || flow === 'gastos') qs.set('flow', flow);
+  if (textQ) qs.set('q', textQ);
   setSync('Cargando movimientos…');
   const r = await fetch('/api/gastos?' + qs, { credentials: 'same-origin' });
   if (r.status === 401) return showLogin();
@@ -883,6 +886,16 @@ async function loadGastosMov() {
 for (const id of ['#gFiltroCategoria', '#gFiltroFlow', '#gFiltroMes', '#gIncluirExcluidos', '#gSoloHoraAuto']) {
   $(id)?.addEventListener('change', () => { if (gastosSub === 'movimientos') loadGastosMov(); });
 }
+$('#gFiltroTexto')?.addEventListener('input', () => {
+  if (gastosSub !== 'movimientos') return;
+  clearTimeout(gastosMovSearchTimer);
+  gastosMovSearchTimer = setTimeout(() => loadGastosMov(), 300);
+});
+$('#gFiltroTexto')?.addEventListener('search', () => {
+  if (gastosSub !== 'movimientos') return;
+  clearTimeout(gastosMovSearchTimer);
+  loadGastosMov();
+});
 
 function catNombre(id) {
   if (!id) return null;

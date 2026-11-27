@@ -134,6 +134,7 @@ async function fetchByCategory(sql, account_id, month) {
  *   uncategorizedOnly?: boolean,
  *   categoryId?: string|null,
  *   flow?: 'ingresos'|'gastos'|null,
+ *   q?: string|null,
  * }} f
  */
 async function fetchTxs(sql, f = {}) {
@@ -144,6 +145,8 @@ async function fetchTxs(sql, f = {}) {
   const uncategorizedOnly = !!f.uncategorizedOnly;
   const categoryId = f.categoryId || null;
   const flow = f.flow === 'ingresos' || f.flow === 'gastos' ? f.flow : null;
+  const qRaw = typeof f.q === 'string' ? f.q.trim().slice(0, 80) : '';
+  const qClean = qRaw.replace(/[%_\\]/g, '').trim();
 
   const accountFilter = accountIds.length
     ? sql`AND t.account_id IN ${accountIds}`
@@ -160,6 +163,10 @@ async function fetchTxs(sql, f = {}) {
     : flow === 'gastos'
       ? sql`AND t.amount < 0`
       : sql``;
+  const like = qClean ? `%${qClean}%` : null;
+  const textFilter = like
+    ? sql`AND (t.merchant ILIKE ${like} OR t.descripcion ILIKE ${like})`
+    : sql``;
 
   return sql`
     SELECT t.id, t.account_id, t.import_id, t.fingerprint, t.fecha, t.posted_at, t.hora_local,
@@ -178,6 +185,7 @@ async function fetchTxs(sql, f = {}) {
       ${uncatFilter}
       ${catFilter}
       ${flowFilter}
+      ${textFilter}
     ORDER BY t.fecha DESC, t.id DESC
     LIMIT 500`;
 }
@@ -201,6 +209,7 @@ export default async function handler(req, res) {
     const uncategorizedOnly = q.uncategorized === '1' || q.sin_clasificar === '1';
     const categoryId = typeof q.category_id === 'string' && q.category_id ? q.category_id : null;
     const flow = q.flow === 'ingresos' || q.flow === 'gastos' ? q.flow : null;
+    const textQ = typeof q.q === 'string' ? q.q : (typeof q.search === 'string' ? q.search : '');
 
     const [accounts, categories, rules, imports] = await Promise.all([
       sql`SELECT id, nombre, tipo, moneda_default, activo, orden FROM accounts WHERE activo = true ORDER BY orden, id`,
@@ -230,6 +239,7 @@ export default async function handler(req, res) {
       uncategorizedOnly,
       categoryId,
       flow,
+      q: textQ,
     });
     return res.status(200).json({ accounts, categories, rules, imports, transactions });
   }
