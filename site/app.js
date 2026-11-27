@@ -749,7 +749,7 @@ function renderGastosCats() {
   ul.replaceChildren(...cats.map((c) => el('li', {},
     el('div', { class: 'body' },
       el('div', { class: 't' }, c.nombre),
-      el('div', { class: 'd id' }, c.id))));
+      el('div', { class: 'd id' }, c.id)))));
   if (!cats.length) ul.append(el('li', { class: 'muted' }, 'Sin categorías.'));
 }
 function renderGastosRules() {
