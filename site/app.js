@@ -9,6 +9,8 @@ const DEBOUNCE_MS = 2500;
 const RECENT_MS = 5 * 60 * 1000; // superpone tildes confirmadas sobre un GET cacheado
 let brief = null, timer = null, tracker = null, meds = null, medTimer = null, shopping = null, shopTimer = null;
 let gastos = null, gastosPreview = null, gastosFileB64 = null, gastosFileName = null, gastosSettlementB64 = null, gastosSub = 'movimientos';
+/** Selected account ids for Movimientos filter. null = all (default). */
+let gastosAcctSelected = null;
 
 function formatGastosHora(t) {
   if (t == null) return '—';
@@ -92,6 +94,8 @@ const ICONS = {
   // pause — desactivar
   pause: 'M8 5a1 1 0 0 0-1 1v12a1 1 0 1 0 2 0V6a1 1 0 0 0-1-1zm8 0a1 1 0 0 0-1 1v12a1 1 0 1 0 2 0V6a1 1 0 0 0-1-1z',
   trash: 'M9 3a1 1 0 0 0-.894.553L7.382 5H5a1 1 0 1 0 0 2h14a1 1 0 1 0 0-2h-2.382l-.724-1.447A1 1 0 0 0 15 3H9zm-3 6a1 1 0 0 1 1 1v8a1 1 0 1 0 2 0v-8a1 1 0 1 1-2 0zm5 0a1 1 0 0 1 1 1v8a1 1 0 1 0 2 0v-8a1 1 0 1 1-2 0zm5 1a1 1 0 1 0-2 0v8a1 1 0 1 0 2 0v-8z',
+  // pencil — editar
+  edit: 'M4 17.25V20h2.75l8.13-8.13-2.75-2.75L4 17.25zm14.71-9.04a1 1 0 0 0 0-1.41l-2.51-2.51a1 1 0 0 0-1.41 0l-1.83 1.83 3.92 3.92 1.83-1.83z',
 };
 function iconBtn({ label, onclick, danger, icon }) {
   return el('button', {
@@ -557,18 +561,7 @@ const moneyFmt = (n, cur = 'ARS') => {
 };
 function fillAccountSelects() {
   if (!gastos?.accounts) return;
-  const multi = $('#gFiltroCuentas');
-  if (multi) {
-    const selected = new Set([...multi.selectedOptions].map((o) => o.value));
-    const hadSelection = selected.size > 0;
-    multi.replaceChildren();
-    for (const a of gastos.accounts) {
-      multi.append(el('option', {
-        value: a.id,
-        selected: hadSelection ? selected.has(a.id) : true,
-      }, a.nombre));
-    }
-  }
+  renderAcctChips();
   for (const sel of [$('#gResCuenta'), $('#rAccount')]) {
     if (!sel) continue;
     const cur = sel.value;
@@ -580,7 +573,7 @@ function fillAccountSelects() {
   const catSel = $('#rCategory');
   if (catSel) {
     const cur = catSel.value;
-    catSel.replaceChildren(el('option', { value: '' }, 'Sin categoría'));
+    catSel.replaceChildren(el('option', { value: '' }, 'Elegir categoría'));
     for (const c of gastos.categories || []) catSel.append(el('option', { value: c.id }, c.nombre));
     catSel.value = [...catSel.options].some((o) => o.value === cur) ? cur : '';
   }
@@ -596,15 +589,55 @@ function fillAccountSelects() {
   }
 }
 
-/** Empty or all selected → no account filter. Partial multi-select → account_ids. */
-function selectedAccountIds() {
-  const multi = $('#gFiltroCuentas');
-  if (!multi) return [];
-  const ids = [...multi.selectedOptions].map((o) => o.value).filter(Boolean);
-  if (!ids.length) return [];
-  if (ids.length === (gastos?.accounts || []).length) return [];
-  return ids;
+function acctSelectionSet() {
+  const all = (gastos?.accounts || []).map((a) => a.id);
+  if (gastosAcctSelected == null) return new Set(all);
+  return new Set(gastosAcctSelected);
 }
+
+function renderAcctChips() {
+  const wrap = $('#gAcctChips');
+  if (!wrap || !gastos?.accounts) return;
+  const selected = acctSelectionSet();
+  wrap.replaceChildren(...gastos.accounts.map((a) => {
+    const on = selected.has(a.id);
+    return el('button', {
+      type: 'button',
+      class: 'acct-chip' + (on ? ' on' : ''),
+      'aria-pressed': on ? 'true' : 'false',
+      onclick: () => {
+        const next = acctSelectionSet();
+        if (next.has(a.id)) next.delete(a.id);
+        else next.add(a.id);
+        const allIds = gastos.accounts.map((x) => x.id);
+        gastosAcctSelected = next.size === allIds.length ? null : [...next];
+        renderAcctChips();
+        if (gastosSub === 'movimientos') loadGastosMov();
+      },
+    }, a.nombre);
+  }));
+}
+
+/** Partial selection → account_ids. All selected → []. None → null (caller shows empty). */
+function selectedAccountIds() {
+  const all = gastos?.accounts || [];
+  if (!all.length) return [];
+  if (gastosAcctSelected == null) return [];
+  if (!gastosAcctSelected.length) return null;
+  if (gastosAcctSelected.length === all.length) return [];
+  return gastosAcctSelected.slice();
+}
+
+$('#gAcctAll')?.addEventListener('click', () => {
+  gastosAcctSelected = null;
+  renderAcctChips();
+  if (gastosSub === 'movimientos') loadGastosMov();
+});
+$('#gAcctNone')?.addEventListener('click', () => {
+  gastosAcctSelected = [];
+  renderAcctChips();
+  if (gastosSub === 'movimientos') loadGastosMov();
+});
 function showGastosSub(sub) {
   gastosSub = sub;
   ensureGastosMonthDefaults();
@@ -758,6 +791,13 @@ $('#gastosConfirm').addEventListener('click', async () => {
 async function loadGastosMov() {
   await loadGastosMeta(false);
   const accountIds = selectedAccountIds();
+  if (accountIds === null) {
+    fillAccountSelects();
+    $('#gMovCount').textContent = '0 filas';
+    $('#gastosMov tbody')?.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted' }, 'Elegí al menos una cuenta.')));
+    setSync('');
+    return;
+  }
   const month = $('#gFiltroMes').value;
   const include = $('#gIncluirExcluidos').checked ? '1' : '0';
   const hourAuto = $('#gSoloHoraAuto')?.checked ? '1' : '0';
@@ -833,7 +873,7 @@ async function loadGastosMov() {
   }));
   setSync('');
 }
-for (const id of ['#gFiltroCuentas', '#gFiltroCategoria', '#gFiltroFlow', '#gFiltroMes', '#gIncluirExcluidos', '#gSoloHoraAuto']) {
+for (const id of ['#gFiltroCategoria', '#gFiltroFlow', '#gFiltroMes', '#gIncluirExcluidos', '#gSoloHoraAuto']) {
   $(id)?.addEventListener('change', () => { if (gastosSub === 'movimientos') loadGastosMov(); });
 }
 
@@ -856,10 +896,45 @@ function renderGastosCats() {
       el('div', { class: 't' }, c.nombre)))));
   if (!cats.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay categorías.'));
 }
+function clearReglaEdit() {
+  const form = $('#addRegla');
+  if (!form) return;
+  form.reset();
+  if ($('#rEditId')) $('#rEditId').value = '';
+  if ($('#rSubmit')) $('#rSubmit').textContent = 'Agregar';
+  if ($('#rCancelEdit')) $('#rCancelEdit').hidden = true;
+}
+
+function startReglaEdit(r) {
+  if (!r) return;
+  if ($('#rEditId')) $('#rEditId').value = r.id;
+  if ($('#rPattern')) $('#rPattern').value = r.pattern || '';
+  if ($('#rCategory')) $('#rCategory').value = r.category_id || '';
+  if ($('#rAccount')) $('#rAccount').value = r.account_id || '';
+  if ($('#rExclude')) $('#rExclude').checked = !!r.exclude_expense;
+  if ($('#rSubmit')) $('#rSubmit').textContent = 'Guardar';
+  if ($('#rCancelEdit')) $('#rCancelEdit').hidden = false;
+  $('#rPattern')?.focus();
+  setSync('Editando regla');
+}
+
+function ruleSearchHay(r) {
+  const cat = catNombre(r.category_id) || '';
+  const acct = accountNombre(r.account_id) || '';
+  return `${r.pattern || ''} ${cat} ${acct}`.toLowerCase();
+}
+
 function renderGastosRules() {
   if (!gastos) return;
   const ul = $('#gastosRules');
-  const rules = gastos.rules || [];
+  const q = ($('#rFilter')?.value || '').trim().toLowerCase();
+  const all = gastos.rules || [];
+  const rules = q ? all.filter((r) => ruleSearchHay(r).includes(q)) : all;
+  if ($('#rFilterCount')) {
+    $('#rFilterCount').textContent = q
+      ? `${rules.length} de ${all.length}`
+      : (all.length ? `${all.length} reglas` : '');
+  }
   ul.replaceChildren(...rules.map((r) => {
     const cat = catNombre(r.category_id);
     const acct = accountNombre(r.account_id);
@@ -874,22 +949,35 @@ function renderGastosRules() {
       el('div', { class: 'body' },
         el('div', { class: 't' }, line),
         bits.length ? el('div', { class: 'd' }, bits.join(' · ')) : null),
-      iconBtn({
-        label: 'Borrar regla',
-        icon: 'trash',
-        danger: true,
-        onclick: async () => {
-          const res = await fetch('/api/gastos', {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin',
-            body: JSON.stringify({ entity: 'rule', id: r.id }),
-          });
-          if (res.ok) { await loadGastosMeta(true); renderGastosRules(); }
-        },
-      }));
+      el('div', { class: 'row-actions' },
+        iconBtn({
+          label: 'Editar regla',
+          icon: 'edit',
+          onclick: () => startReglaEdit(r),
+        }),
+        iconBtn({
+          label: 'Borrar regla',
+          icon: 'trash',
+          danger: true,
+          onclick: async () => {
+            if (!confirm(`¿Borrar la regla «${r.pattern}»?`)) return;
+            setSync('Borrando…');
+            const res = await fetch('/api/gastos', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ entity: 'rule', id: r.id }),
+            });
+            if (!res.ok) { setSync('No se pudo borrar'); return; }
+            if ($('#rEditId')?.value === r.id) clearReglaEdit();
+            await loadGastosMeta(true);
+            renderGastosRules();
+            setSync('Regla borrada');
+          },
+        })));
   }));
-  if (!rules.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay reglas.'));
+  if (!all.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay reglas.'));
+  else if (!rules.length) ul.append(el('li', { class: 'muted' }, 'Ninguna regla coincide con la búsqueda.'));
 }
 $('#addCategoria')?.addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -918,30 +1006,42 @@ $('#addRegla').addEventListener('submit', async (e) => {
   e.preventDefault();
   const pattern = $('#rPattern').value.trim();
   if (!pattern) return;
-  const btn = e.target.querySelector('button');
+  const editId = ($('#rEditId')?.value || '').trim();
+  const existing = editId ? (gastos?.rules || []).find((x) => x.id === editId) : null;
+  const btn = $('#rSubmit') || e.target.querySelector('button[type=submit]');
   btn.disabled = true;
   try {
+    const payload = {
+      entity: 'rule',
+      pattern,
+      category_id: $('#rCategory').value || null,
+      account_id: $('#rAccount').value || null,
+      exclude_expense: $('#rExclude').checked,
+    };
+    if (editId) {
+      payload.id = editId;
+      if (existing && typeof existing.priority === 'number') payload.priority = existing.priority;
+    }
     const r = await fetch('/api/gastos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({
-        entity: 'rule',
-        pattern,
-        category_id: $('#rCategory').value || null,
-        account_id: $('#rAccount').value || null,
-        exclude_expense: $('#rExclude').checked,
-      }),
+      body: JSON.stringify(payload),
     });
     if (r.status === 401) return showLogin();
     if (!r.ok) throw new Error(r.status);
-    e.target.reset();
+    clearReglaEdit();
     await loadGastosMeta(true);
     renderGastosRules();
-    setSync('Regla agregada');
-  } catch { setSync('No se pudo agregar regla'); }
+    setSync(editId ? 'Regla guardada' : 'Regla agregada');
+  } catch { setSync(editId ? 'No se pudo guardar' : 'No se pudo agregar regla'); }
   finally { btn.disabled = false; }
 });
+$('#rCancelEdit')?.addEventListener('click', () => {
+  clearReglaEdit();
+  setSync('');
+});
+$('#rFilter')?.addEventListener('input', () => renderGastosRules());
 
 async function loadGastosResumen() {
   await loadGastosMeta(false);

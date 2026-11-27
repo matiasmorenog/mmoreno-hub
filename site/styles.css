@@ -81,7 +81,19 @@ details p{margin-top:8px!important;color:var(--mu);font-size:14px}
 .flag.hora{color:var(--ac);border-color:currentColor}
 #gastosPreview td,#gastosMov td,#gastosResumenTbl td,#gastosCatTbl td{font-size:13px}
 #gastosUpload input[type=file]{flex:2;min-width:200px}
-#gFiltroCuentas{min-width:160px;max-width:220px;height:auto;min-height:4.5rem}
 .reglas-form{flex-wrap:wrap;align-items:center}
 .reglas-form label{flex:none}
 #gastosRules .t{font-weight:500;line-height:1.35}
+.gastos-mov-filters{align-items:flex-start}
+.acct-filter{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;flex:1 1 100%}
+.acct-chips{display:flex;flex-wrap:wrap;gap:6px}
+.acct-chip{
+  font:inherit;font-size:13px;padding:5px 11px;border-radius:999px;cursor:pointer;
+  border:1px solid var(--bd);background:transparent;color:var(--mu);
+}
+.acct-chip:hover{color:var(--tx);border-color:var(--tx)}
+.acct-chip.on{background:var(--tx);color:var(--bg);border-color:var(--tx)}
+.acct-filter-actions{display:flex;gap:4px}
+.ghost.tiny{font:inherit;font-size:12px;padding:2px 8px;border:0;background:transparent;color:var(--mu);cursor:pointer;text-decoration:underline}
+.ghost.tiny:hover{color:var(--tx)}
+#rFilter{flex:1;min-width:180px;max-width:320px}

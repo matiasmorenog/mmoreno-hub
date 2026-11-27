@@ -103,9 +103,15 @@
     </nav>
 
     <div id="gastos-movimientos">
-      <div class="filters">
-        <label class="muted small" for="gFiltroCuentas">Cuentas</label>
-        <select id="gFiltroCuentas" multiple size="4" aria-label="Cuentas (podés elegir varias)"></select>
+      <div class="filters gastos-mov-filters">
+        <div class="acct-filter" id="gAcctFilter">
+          <span class="muted small">Cuentas</span>
+          <div id="gAcctChips" class="acct-chips" role="group" aria-label="Filtrar por cuenta"></div>
+          <div class="acct-filter-actions">
+            <button type="button" id="gAcctAll" class="ghost tiny">Todas</button>
+            <button type="button" id="gAcctNone" class="ghost tiny">Ninguna</button>
+          </div>
+        </div>
         <select id="gFiltroCategoria" aria-label="Categoría">
           <option value="">Todas las categorías</option>
           <option value="__none__">Sin clasificar</option>
@@ -136,14 +142,20 @@
       <h2>Reglas automáticas</h2>
       <p class="muted small">Si el texto del movimiento contiene cierta palabra, le asignamos una categoría. También se crean solas cuando categorizás a mano.</p>
       <form id="addRegla" class="add-row reglas-form">
+        <input type="hidden" id="rEditId" value="">
         <label class="muted small" for="rPattern">Si el texto contiene</label>
         <input id="rPattern" type="text" placeholder="ej. YPF, Spotify, CEAMSE" required maxlength="200" autocomplete="off">
         <label class="muted small" for="rCategory">→ categoría</label>
         <select id="rCategory"><option value="">Elegir categoría</option></select>
         <select id="rAccount" aria-label="Solo en esta cuenta (opcional)"><option value="">Todas las cuentas</option></select>
         <label class="muted small"><input type="checkbox" id="rExclude"> No contar como gasto</label>
-        <button type="submit">Agregar</button>
+        <button type="submit" id="rSubmit">Agregar</button>
+        <button type="button" id="rCancelEdit" class="ghost" hidden>Cancelar</button>
       </form>
+      <div class="filters" style="margin:10px 0 6px">
+        <input id="rFilter" type="search" placeholder="Buscar en reglas…" maxlength="120" aria-label="Buscar reglas" autocomplete="off">
+        <span id="rFilterCount" class="muted small"></span>
+      </div>
       <ul id="gastosRules" class="items"></ul>
     </div>
 
