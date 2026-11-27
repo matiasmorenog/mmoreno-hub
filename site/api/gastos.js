@@ -349,12 +349,14 @@ export default async function handler(req, res) {
       const nombre = typeof b.nombre === 'string' ? b.nombre.trim().slice(0, 80) : '';
       if (!nombre) return res.status(400).json({ error: 'nombre' });
       const id = typeof b.id === 'string' && b.id ? b.id : slugId('cat', nombre);
-      const orden =
-        typeof b.orden === 'number' && Number.isFinite(b.orden) ? Math.trunc(b.orden) : 100;
+      const hasOrden = typeof b.orden === 'number' && Number.isFinite(b.orden);
+      const orden = hasOrden ? Math.trunc(b.orden) : 100;
       const rows = await sql`
         INSERT INTO categories (id, nombre, orden)
         VALUES (${id}, ${nombre}, ${orden})
-        ON CONFLICT (id) DO UPDATE SET nombre = EXCLUDED.nombre
+        ON CONFLICT (id) DO UPDATE SET
+          nombre = EXCLUDED.nombre,
+          orden = CASE WHEN ${hasOrden} THEN EXCLUDED.orden ELSE categories.orden END
         RETURNING id, nombre, color, orden, activo`;
       return res.status(201).json(rows[0]);
     }

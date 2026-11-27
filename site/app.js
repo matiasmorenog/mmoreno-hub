@@ -906,6 +906,25 @@ function accountNombre(id) {
   return (gastos?.accounts || []).find((a) => a.id === id)?.nombre || id;
 }
 
+function clearCategoriaEdit() {
+  const form = $('#addCategoria');
+  if (!form) return;
+  form.reset();
+  if ($('#cEditId')) $('#cEditId').value = '';
+  if ($('#cSubmit')) $('#cSubmit').textContent = 'Crear';
+  if ($('#cCancelEdit')) $('#cCancelEdit').hidden = true;
+}
+
+function startCategoriaEdit(c) {
+  if (!c) return;
+  if ($('#cEditId')) $('#cEditId').value = c.id;
+  if ($('#cNombre')) $('#cNombre').value = c.nombre || '';
+  if ($('#cSubmit')) $('#cSubmit').textContent = 'Guardar';
+  if ($('#cCancelEdit')) $('#cCancelEdit').hidden = false;
+  $('#cNombre')?.focus();
+  setSync('Editando categoría');
+}
+
 function renderGastosCats() {
   if (!gastos) return;
   const ul = $('#gastosCats');
@@ -913,7 +932,13 @@ function renderGastosCats() {
   const cats = gastos.categories || [];
   ul.replaceChildren(...cats.map((c) => el('li', {},
     el('div', { class: 'body' },
-      el('div', { class: 't' }, c.nombre)))));
+      el('div', { class: 't' }, c.nombre)),
+    el('div', { class: 'row-actions' },
+      iconBtn({
+        label: 'Editar categoría',
+        icon: 'edit',
+        onclick: () => startCategoriaEdit(c),
+      })))));
   if (!cats.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay categorías.'));
 }
 function clearReglaEdit() {
@@ -999,27 +1024,39 @@ function renderGastosRules() {
   if (!all.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay reglas.'));
   else if (!rules.length) ul.append(el('li', { class: 'muted' }, 'Ninguna regla coincide con la búsqueda.'));
 }
+$('#cCancelEdit')?.addEventListener('click', () => {
+  clearCategoriaEdit();
+  setSync('');
+});
 $('#addCategoria')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const nombre = $('#cNombre').value.trim();
   if (!nombre) return;
-  const btn = e.target.querySelector('button');
+  const editId = ($('#cEditId')?.value || '').trim();
+  const existing = editId ? (gastos?.categories || []).find((x) => x.id === editId) : null;
+  const btn = $('#cSubmit') || e.target.querySelector('button[type=submit]');
   btn.disabled = true;
   try {
+    const payload = { entity: 'category', nombre };
+    if (editId) {
+      payload.id = editId;
+      if (existing && typeof existing.orden === 'number') payload.orden = existing.orden;
+    }
     const r = await fetch('/api/gastos', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
-      body: JSON.stringify({ entity: 'category', nombre }),
+      body: JSON.stringify(payload),
     });
     if (r.status === 401) return showLogin();
     if (!r.ok) throw new Error(r.status);
-    e.target.reset();
+    clearCategoriaEdit();
     await loadGastosMeta(true);
     renderGastosCats();
+    renderGastosRules();
     fillAccountSelects();
-    setSync('Categoría creada');
-  } catch { setSync('No se pudo crear categoría'); }
+    setSync(editId ? 'Categoría guardada' : 'Categoría creada');
+  } catch { setSync(editId ? 'No se pudo guardar' : 'No se pudo crear categoría'); }
   finally { btn.disabled = false; }
 });
 $('#addRegla').addEventListener('submit', async (e) => {

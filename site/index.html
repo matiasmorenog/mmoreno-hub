@@ -136,8 +136,10 @@
     <div id="gastos-reglas" hidden>
       <h2>Categorías</h2>
       <form id="addCategoria" class="add-row">
+        <input type="hidden" id="cEditId" value="">
         <input id="cNombre" type="text" placeholder="Nombre de la categoría" required maxlength="80" autocomplete="off">
-        <button type="submit">Crear</button>
+        <button type="submit" id="cSubmit">Crear</button>
+        <button type="button" id="cCancelEdit" class="ghost" hidden>Cancelar</button>
       </form>
       <ul id="gastosCats" class="items"></ul>
       <h2>Reglas automáticas</h2>
