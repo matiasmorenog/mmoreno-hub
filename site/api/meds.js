@@ -3,6 +3,8 @@ import { db, guard, body } from './_lib.js';
 
 const TZ = 'America/Argentina/Buenos_Aires';
 const MOMENTO_MAX = 40;
+/** Calendar days back (incl. today) to surface missed doses as pendientes. */
+const LOOKBACK_DAYS = 14;
 
 function normalizeMomento(v) {
   if (typeof v !== 'string') return null;
@@ -22,11 +24,16 @@ function slugId(nombre) {
 }
 
 const LIST = `
-WITH hoy AS (SELECT (now() AT TIME ZONE '${TZ}')::date AS d)
-SELECT json_build_object(
-  'hoy', (SELECT to_char(d, 'YYYY-MM-DD') FROM hoy),
-  'tz', '${TZ}',
-  'items', COALESCE((SELECT json_agg(json_build_object(
+WITH hoy AS (SELECT (now() AT TIME ZONE '${TZ}')::date AS d),
+dias AS (
+  SELECT generate_series(
+    (SELECT d FROM hoy) - ${LOOKBACK_DAYS}::int,
+    (SELECT d FROM hoy),
+    '1 day'::interval
+  )::date AS fecha
+),
+items AS (
+  SELECT json_agg(json_build_object(
       'id', m.id,
       'nombre', m.nombre,
       'notas', m.notas,
@@ -35,10 +42,33 @@ SELECT json_build_object(
       'orden', m.orden,
       'tomado', COALESCE(md.tomado, false),
       'tomado_en', md.tomado_en
-    ) ORDER BY m.orden, m.id)
-    FROM medications m
-    LEFT JOIN medication_doses md ON md.medication_id = m.id AND md.fecha = (SELECT d FROM hoy)
-  ), '[]'::json)
+    ) ORDER BY m.orden, m.id) AS arr
+  FROM medications m
+  LEFT JOIN medication_doses md ON md.medication_id = m.id AND md.fecha = (SELECT d FROM hoy)
+),
+pendientes AS (
+  SELECT json_agg(json_build_object(
+      'id', m.id,
+      'nombre', m.nombre,
+      'notas', m.notas,
+      'momento', m.momento,
+      'fecha', to_char(d.fecha, 'YYYY-MM-DD')
+    ) ORDER BY d.fecha DESC, m.orden, m.id) AS arr
+  FROM medications m
+  CROSS JOIN dias d
+  WHERE m.activo
+    AND d.fecha >= (m.creado AT TIME ZONE '${TZ}')::date
+    AND NOT EXISTS (
+      SELECT 1 FROM medication_doses md
+      WHERE md.medication_id = m.id AND md.fecha = d.fecha AND md.tomado
+    )
+)
+SELECT json_build_object(
+  'hoy', (SELECT to_char(d, 'YYYY-MM-DD') FROM hoy),
+  'tz', '${TZ}',
+  'lookback_days', ${LOOKBACK_DAYS},
+  'items', COALESCE((SELECT arr FROM items), '[]'::json),
+  'pendientes', COALESCE((SELECT arr FROM pendientes), '[]'::json)
 ) AS b`;
 
 const INS = `
