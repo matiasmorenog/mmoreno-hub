@@ -36,6 +36,11 @@ import {
   namePartsMatch,
   ruleMatchesHaystack,
 } from './rules.js';
+import {
+  addOneMonth,
+  clampDayOfMonth,
+  defaultNextDue,
+} from './cash.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.join(dir, 'fixtures');
@@ -452,4 +457,19 @@ test('Transferencia recibida catch-all is weak; friend learned rule wins', () =>
 
   const otherAcct = applyRules([{ ...base, account_id: 'santander_caja' }], [catchAll])[0];
   assert.equal(otherAcct.category_id, null);
+});
+
+test('cash monthly next_due helpers', () => {
+  assert.equal(clampDayOfMonth(0), 1);
+  assert.equal(clampDayOfMonth(31), 28);
+  assert.equal(clampDayOfMonth(15), 15);
+  assert.equal(addOneMonth('2026-01-15', 15), '2026-02-15');
+  assert.equal(addOneMonth('2026-12-01', 1), '2027-01-01');
+  assert.equal(addOneMonth('2026-01-28', 28), '2026-02-28');
+  // Today before day → this month
+  assert.equal(defaultNextDue(20, '2026-11-10'), '2026-11-20');
+  // Today after day → next month
+  assert.equal(defaultNextDue(5, '2026-11-10'), '2026-12-05');
+  // Today == day → due today
+  assert.equal(defaultNextDue(10, '2026-11-10'), '2026-11-10');
 });

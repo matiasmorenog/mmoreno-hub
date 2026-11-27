@@ -82,6 +82,11 @@ details p{margin-top:8px!important;color:var(--mu);font-size:14px}
 #gastosUpload input[type=file]{flex:2;min-width:200px}
 .reglas-form{flex-wrap:wrap;align-items:center}
 .reglas-form label{flex:none}
+.cash-form{flex-wrap:wrap;align-items:center}
+.cash-form label{flex:none}
+.cash-form input[type=number]{width:7rem;flex:none}
+.cash-form input[type=date]{flex:none}
+#gastosCashTbl td{font-size:13px}
 #gastosRules .t{font-weight:500;line-height:1.35}
 #gastosRules li.rule-group{flex-direction:column;align-items:stretch;gap:0;padding:0}
 #gastosRules .rule-group-head{

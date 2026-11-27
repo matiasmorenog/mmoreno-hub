@@ -97,6 +97,7 @@
   <section id="view-gastos" hidden>
     <nav class="subtabs" id="gastosSubtabs" role="tablist" aria-label="Gastos">
       <button type="button" data-gview="movimientos" class="on">Movimientos</button>
+      <button type="button" data-gview="efectivo">Efectivo</button>
       <button type="button" data-gview="reglas">Reglas</button>
       <button type="button" data-gview="resumen">Resumen</button>
       <button type="button" data-gview="importar">Importar</button>
@@ -134,6 +135,52 @@
           <th><button type="button" class="th-sort" data-sort="desc">Descripción</button></th>
           <th><button type="button" class="th-sort" data-sort="monto">Monto</button></th>
           <th><button type="button" class="th-sort" data-sort="categoria">Categoría</button></th>
+          <th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+
+    <div id="gastos-efectivo" hidden>
+      <h2>Gasto en efectivo</h2>
+      <p class="muted small">Carga manual a la cuenta Efectivo (sin extracto).</p>
+      <form id="addCashTx" class="add-row cash-form">
+        <label class="muted small" for="cashAmount">Monto</label>
+        <input id="cashAmount" type="number" inputmode="decimal" step="0.01" min="0.01" placeholder="0" required aria-label="Monto">
+        <label class="muted small" for="cashFecha">Fecha</label>
+        <input id="cashFecha" type="date" required aria-label="Fecha">
+        <label class="muted small" for="cashCat">Categoría</label>
+        <select id="cashCat" aria-label="Categoría"><option value="">Sin categoría</option></select>
+        <label class="muted small" for="cashNote">Nota</label>
+        <input id="cashNote" type="text" placeholder="ej. almuerzo, taxi" maxlength="200" autocomplete="off" aria-label="Nota">
+        <button type="submit">Agregar</button>
+      </form>
+
+      <h2>Fijos mensuales</h2>
+      <p class="muted small">Ej. gimnasio: cada mes se crea solo cuando llega el próximo vencimiento.</p>
+      <form id="addCashRec" class="add-row cash-form">
+        <label class="muted small" for="cashRecNombre">Nombre</label>
+        <input id="cashRecNombre" type="text" placeholder="ej. Gimnasio" required maxlength="120" autocomplete="off">
+        <label class="muted small" for="cashRecAmount">Monto</label>
+        <input id="cashRecAmount" type="number" inputmode="decimal" step="0.01" min="0.01" placeholder="0" required aria-label="Monto fijo">
+        <label class="muted small" for="cashRecDia">Día</label>
+        <input id="cashRecDia" type="number" inputmode="numeric" min="1" max="28" value="1" required aria-label="Día del mes (1–28)">
+        <label class="muted small" for="cashRecCat">Categoría</label>
+        <select id="cashRecCat" aria-label="Categoría fijo"><option value="">Sin categoría</option></select>
+        <label class="muted small" for="cashRecNote">Nota</label>
+        <input id="cashRecNote" type="text" placeholder="opcional" maxlength="200" autocomplete="off">
+        <button type="submit">Agregar fijo</button>
+      </form>
+      <ul id="gastosCashRec" class="items"></ul>
+
+      <h2>Últimos en efectivo</h2>
+      <p id="gastosCashMeta" class="muted small"></p>
+      <div class="tablewrap"><table class="tbl" id="gastosCashTbl">
+        <thead><tr>
+          <th>Fecha</th>
+          <th>Descripción</th>
+          <th>Monto</th>
+          <th>Categoría</th>
           <th></th>
         </tr></thead>
         <tbody></tbody>

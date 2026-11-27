@@ -129,7 +129,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   id text PRIMARY KEY,
   nombre text NOT NULL,
   tipo text NOT NULL CHECK (tipo IN (
-    'mp_wallet', 'mp_card', 'santander_caja', 'santander_visa', 'santander_amex'
+    'mp_wallet', 'mp_card', 'santander_caja', 'santander_visa', 'santander_amex', 'cash'
   )),
   moneda_default text NOT NULL DEFAULT 'ARS',
   activo boolean NOT NULL DEFAULT true,
@@ -227,12 +227,30 @@ UPDATE category_rules SET category_id = 'transporte' WHERE category_id = 'combus
 DELETE FROM categories WHERE id = 'combustible';
 
 INSERT INTO accounts (id, nombre, tipo, moneda_default, orden) VALUES
+  ('cash', 'Efectivo', 'cash', 'ARS', 5),
   ('mp_wallet', 'Mercado Pago billetera', 'mp_wallet', 'ARS', 10),
   ('mp_card', 'Mercado Pago tarjeta', 'mp_card', 'ARS', 20),
   ('santander_caja', 'Santander caja', 'santander_caja', 'ARS', 30),
   ('santander_visa', 'Santander Visa', 'santander_visa', 'ARS', 40),
   ('santander_amex', 'Santander Amex', 'santander_amex', 'ARS', 50)
 ON CONFLICT (id) DO NOTHING;
+
+-- Monthly fixed cash expenses (gym, etc.): auto-create txs when next_due <= today.
+CREATE TABLE IF NOT EXISTS cash_recurring (
+  id text PRIMARY KEY,
+  nombre text NOT NULL,
+  amount numeric NOT NULL,
+  currency text NOT NULL DEFAULT 'ARS' CHECK (currency IN ('ARS', 'USD')),
+  category_id text REFERENCES categories(id) ON DELETE SET NULL,
+  notes text,
+  day_of_month int NOT NULL CHECK (day_of_month >= 1 AND day_of_month <= 28),
+  next_due date NOT NULL,
+  activo boolean NOT NULL DEFAULT true,
+  account_id text NOT NULL DEFAULT 'cash' REFERENCES accounts(id),
+  creado timestamptz NOT NULL DEFAULT now(),
+  actualizado timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS cash_recurring_due_idx ON cash_recurring (activo, next_due);
 
 INSERT INTO categories (id, nombre, orden) VALUES
   ('comida', 'Comida', 10),

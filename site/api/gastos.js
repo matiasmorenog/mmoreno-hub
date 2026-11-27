@@ -7,6 +7,14 @@ import {
   CAT_SRC_MANUAL,
   CAT_SRC_RULE,
 } from './_lib/gastos/rules.js';
+import { fingerprint, newId } from './_lib/gastos/fingerprint.js';
+import {
+  CASH_ACCOUNT_ID,
+  clampDayOfMonth,
+  defaultNextDue,
+  materializeDueCash,
+  todayISO,
+} from './_lib/gastos/cash.js';
 
 function slugId(prefix, nombre) {
   const base =
@@ -206,6 +214,37 @@ export default async function handler(req, res) {
       return res.status(200).json({ accounts, categories, rules, imports });
     }
 
+    if (view === 'efectivo') {
+      const matured = await materializeDueCash(sql, { fingerprint, newId });
+      const [recurring, cash_txs] = await Promise.all([
+        sql`
+          SELECT r.id, r.nombre, r.amount, r.currency, r.category_id, r.notes,
+                 r.day_of_month, r.next_due, r.activo, r.account_id, r.creado, r.actualizado,
+                 c.nombre AS category_nombre
+          FROM cash_recurring r
+          LEFT JOIN categories c ON c.id = r.category_id
+          ORDER BY r.activo DESC, r.next_due ASC, r.nombre ASC`,
+        sql`
+          SELECT t.id, t.fecha, t.amount, t.currency, t.descripcion, t.merchant, t.notes,
+                 t.category_id, t.tx_type, t.category_source, c.nombre AS category_nombre
+          FROM transactions t
+          LEFT JOIN categories c ON c.id = t.category_id
+          WHERE t.account_id = ${CASH_ACCOUNT_ID}
+          ORDER BY t.fecha DESC, t.id DESC
+          LIMIT 80`,
+      ]);
+      return res.status(200).json({
+        accounts,
+        categories,
+        rules,
+        imports,
+        recurring,
+        cash_txs,
+        matured,
+        today: todayISO(),
+      });
+    }
+
     if (view === 'resumen') {
       const resumenAccount = accountIds.length === 1 ? accountIds[0] : account_id;
       const [resumen, by_category] = await Promise.all([
@@ -233,6 +272,48 @@ export default async function handler(req, res) {
     const b = body(req);
     const id = typeof b.id === 'string' ? b.id : '';
     if (!id) return res.status(400).json({ error: 'id' });
+
+    if (b.entity === 'cash_recurring') {
+      const hasActivo = typeof b.activo === 'boolean';
+      const hasAmount = Object.prototype.hasOwnProperty.call(b, 'amount');
+      const hasDay = Object.prototype.hasOwnProperty.call(b, 'day_of_month') ||
+        Object.prototype.hasOwnProperty.call(b, 'dia');
+      const hasNext = typeof b.next_due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.next_due);
+      const hasNombre = typeof b.nombre === 'string';
+      const hasCatR = Object.prototype.hasOwnProperty.call(b, 'category_id');
+      const hasNotes = Object.prototype.hasOwnProperty.call(b, 'notes');
+      const nombre = hasNombre ? b.nombre.trim().slice(0, 120) : null;
+      if (hasNombre && !nombre) return res.status(400).json({ error: 'nombre' });
+      let amount = null;
+      if (hasAmount) {
+        const raw = Number(b.amount);
+        if (!Number.isFinite(raw) || raw === 0) return res.status(400).json({ error: 'amount' });
+        amount = Math.abs(raw);
+      }
+      const day_of_month = hasDay
+        ? clampDayOfMonth(b.day_of_month ?? b.dia)
+        : null;
+      const category_id = hasCatR
+        ? (typeof b.category_id === 'string' && b.category_id ? b.category_id : null)
+        : undefined;
+      const notes = hasNotes
+        ? (typeof b.notes === 'string' ? b.notes.trim().slice(0, 2000) || null : null)
+        : undefined;
+      const rows = await sql`
+        UPDATE cash_recurring SET
+          nombre = COALESCE(${hasNombre ? nombre : null}, nombre),
+          amount = COALESCE(${hasAmount ? amount : null}, amount),
+          day_of_month = COALESCE(${hasDay ? day_of_month : null}, day_of_month),
+          next_due = CASE WHEN ${hasNext} THEN ${hasNext ? b.next_due : null} ELSE next_due END,
+          category_id = CASE WHEN ${hasCatR} THEN ${hasCatR ? category_id : null} ELSE category_id END,
+          notes = CASE WHEN ${hasNotes} THEN ${hasNotes ? notes : null} ELSE notes END,
+          activo = COALESCE(${hasActivo ? b.activo : null}, activo),
+          actualizado = now()
+        WHERE id = ${id}
+        RETURNING id, nombre, amount, currency, category_id, notes, day_of_month, next_due, activo, account_id`;
+      if (!rows.length) return res.status(404).json({ error: 'not_found' });
+      return res.status(200).json(rows[0]);
+    }
 
     const hasCat = Object.prototype.hasOwnProperty.call(b, 'category_id');
     const category_id = hasCat
@@ -360,6 +441,111 @@ export default async function handler(req, res) {
         RETURNING id, nombre, color, orden, activo`;
       return res.status(201).json(rows[0]);
     }
+
+    if (b.entity === 'cash_tx') {
+      const fecha =
+        typeof b.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.fecha)
+          ? b.fecha
+          : todayISO();
+      const rawAmt = Number(b.amount);
+      if (!Number.isFinite(rawAmt) || rawAmt === 0) {
+        return res.status(400).json({ error: 'amount' });
+      }
+      // UI enters positive expense → store negative.
+      const amount = rawAmt > 0 ? -Math.abs(rawAmt) : rawAmt;
+      const currency = b.currency === 'USD' ? 'USD' : 'ARS';
+      const category_id =
+        typeof b.category_id === 'string' && b.category_id ? b.category_id : null;
+      const notes =
+        typeof b.notes === 'string' ? b.notes.trim().slice(0, 2000) || null : null;
+      const descripcion =
+        typeof b.descripcion === 'string'
+          ? b.descripcion.trim().slice(0, 200) || null
+          : notes;
+      const merchant =
+        typeof b.merchant === 'string'
+          ? b.merchant.trim().slice(0, 120) || 'Efectivo'
+          : 'Efectivo';
+      const id = newId('cash');
+      // Unique fingerprint per entry (manual cash can repeat same day/amount).
+      const fp = fingerprint(['cash_manual', id, fecha, amount, currency, category_id || '', notes || '']);
+      const amount_ars = currency === 'ARS' ? amount : null;
+      const amount_usd = currency === 'USD' ? amount : null;
+      const rows = await sql`
+        INSERT INTO transactions (
+          id, account_id, import_id, fingerprint, fecha, posted_at, hora_local,
+          descripcion, merchant, tx_type,
+          amount, currency, amount_ars, amount_usd, category_id, category_source,
+          is_internal_transfer, is_excluded, double_count_guard, notes, raw
+        ) VALUES (
+          ${id},
+          ${CASH_ACCOUNT_ID},
+          NULL,
+          ${fp},
+          ${fecha},
+          NULL,
+          NULL,
+          ${descripcion},
+          ${merchant},
+          ${'cash'},
+          ${amount},
+          ${currency},
+          ${amount_ars},
+          ${amount_usd},
+          ${category_id},
+          ${CAT_SRC_MANUAL},
+          false,
+          false,
+          false,
+          ${notes},
+          ${JSON.stringify({ source: 'cash_manual' })}::jsonb
+        )
+        RETURNING id, account_id, fecha, amount, currency, descripcion, merchant,
+                  category_id, category_source, notes, tx_type`;
+      return res.status(201).json(rows[0]);
+    }
+
+    if (b.entity === 'cash_recurring') {
+      const nombre = typeof b.nombre === 'string' ? b.nombre.trim().slice(0, 120) : '';
+      if (!nombre) return res.status(400).json({ error: 'nombre' });
+      const rawAmt = Number(b.amount);
+      if (!Number.isFinite(rawAmt) || rawAmt === 0) {
+        return res.status(400).json({ error: 'amount' });
+      }
+      // Store positive magnitude; materialize signs as expense.
+      const amount = Math.abs(rawAmt);
+      const currency = b.currency === 'USD' ? 'USD' : 'ARS';
+      const category_id =
+        typeof b.category_id === 'string' && b.category_id ? b.category_id : null;
+      const notes =
+        typeof b.notes === 'string' ? b.notes.trim().slice(0, 2000) || null : null;
+      const day_of_month = clampDayOfMonth(b.day_of_month ?? b.dia ?? 1);
+      const next_due =
+        typeof b.next_due === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.next_due)
+          ? b.next_due
+          : defaultNextDue(day_of_month);
+      const id = typeof b.id === 'string' && b.id ? b.id : slugId('cashrec', nombre);
+      const rows = await sql`
+        INSERT INTO cash_recurring (
+          id, nombre, amount, currency, category_id, notes, day_of_month, next_due, activo, account_id
+        ) VALUES (
+          ${id}, ${nombre}, ${amount}, ${currency}, ${category_id}, ${notes},
+          ${day_of_month}, ${next_due}, true, ${CASH_ACCOUNT_ID}
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          nombre = EXCLUDED.nombre,
+          amount = EXCLUDED.amount,
+          currency = EXCLUDED.currency,
+          category_id = EXCLUDED.category_id,
+          notes = EXCLUDED.notes,
+          day_of_month = EXCLUDED.day_of_month,
+          next_due = EXCLUDED.next_due,
+          activo = true,
+          actualizado = now()
+        RETURNING id, nombre, amount, currency, category_id, notes, day_of_month, next_due, activo, account_id`;
+      return res.status(201).json(rows[0]);
+    }
+
     return res.status(400).json({ error: 'entity' });
   }
 
@@ -369,6 +555,19 @@ export default async function handler(req, res) {
     if (!id) return res.status(400).json({ error: 'id' });
     if (b.entity === 'rule') {
       const rows = await sql`DELETE FROM category_rules WHERE id = ${id} RETURNING id`;
+      if (!rows.length) return res.status(404).json({ error: 'not_found' });
+      return res.status(200).json({ deleted: rows[0].id });
+    }
+    if (b.entity === 'cash_recurring') {
+      const rows = await sql`DELETE FROM cash_recurring WHERE id = ${id} RETURNING id`;
+      if (!rows.length) return res.status(404).json({ error: 'not_found' });
+      return res.status(200).json({ deleted: rows[0].id });
+    }
+    if (b.entity === 'cash_tx') {
+      const rows = await sql`
+        DELETE FROM transactions
+        WHERE id = ${id} AND account_id = ${CASH_ACCOUNT_ID}
+        RETURNING id`;
       if (!rows.length) return res.status(404).json({ error: 'not_found' });
       return res.status(200).json({ deleted: rows[0].id });
     }

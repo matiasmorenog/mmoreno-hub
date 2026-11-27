@@ -68,10 +68,19 @@ function currentMonthAR() {
   const m = parts.find((p) => p.type === 'month')?.value;
   return `${y}-${m}`;
 }
+function todayAR() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
 function ensureGastosMonthDefaults() {
   const cur = currentMonthAR();
   if ($('#gFiltroMes') && !$('#gFiltroMes').value) $('#gFiltroMes').value = cur;
   if ($('#gResMes') && !$('#gResMes').value) $('#gResMes').value = cur;
+  if ($('#cashFecha') && !$('#cashFecha').value) $('#cashFecha').value = todayAR();
 }
 const MOMENTO_LABEL = { manana: 'Mañana', mediodia: 'Mediodía', noche: 'Noche' };
 
@@ -619,6 +628,13 @@ function fillAccountSelects() {
     for (const c of gastos.categories || []) filtroCat.append(el('option', { value: c.id }, c.nombre));
     if ([...filtroCat.options].some((o) => o.value === cur)) filtroCat.value = cur;
   }
+  for (const sel of [$('#cashCat'), $('#cashRecCat')]) {
+    if (!sel) continue;
+    const cur = sel.value;
+    sel.replaceChildren(el('option', { value: '' }, 'Sin categoría'));
+    for (const c of gastos.categories || []) sel.append(el('option', { value: c.id }, c.nombre));
+    if ([...sel.options].some((o) => o.value === cur)) sel.value = cur;
+  }
 }
 
 function acctSelectionSet() {
@@ -673,12 +689,13 @@ $('#gAcctNone')?.addEventListener('click', () => {
 function showGastosSub(sub) {
   gastosSub = sub;
   ensureGastosMonthDefaults();
-  for (const s of ['movimientos', 'reglas', 'resumen', 'importar']) {
+  for (const s of ['movimientos', 'efectivo', 'reglas', 'resumen', 'importar']) {
     const n = $('#gastos-' + s);
     if (n) n.hidden = s !== sub;
   }
   document.querySelectorAll('#gastosSubtabs button').forEach((b) => b.classList.toggle('on', b.dataset.gview === sub));
   if (sub === 'movimientos') loadGastosMov();
+  if (sub === 'efectivo') loadGastosEfectivo();
   if (sub === 'reglas') { renderGastosCats(); renderGastosRules(); }
   if (sub === 'resumen') loadGastosResumen();
 }
@@ -1416,6 +1433,181 @@ async function toggleCatRow(row) {
     setSync('');
   }
 }
+
+let gastosCash = null;
+
+function renderGastosCashRec() {
+  const ul = $('#gastosCashRec');
+  if (!ul) return;
+  const rows = gastosCash?.recurring || [];
+  if (!rows.length) {
+    ul.replaceChildren(el('li', { class: 'muted' }, 'Sin fijos todavía.'));
+    return;
+  }
+  ul.replaceChildren(...rows.map((r) => {
+    const paused = r.activo === false;
+    return el('li', { class: paused ? 'done' : '' },
+      el('div', { class: 'body' },
+        el('div', { class: 't' }, r.nombre),
+        el('div', { class: 'd' },
+          `${moneyFmt(Math.abs(Number(r.amount)), r.currency)} · día ${r.day_of_month}` +
+          ` · próximo ${String(r.next_due).slice(0, 10)}` +
+          (r.category_nombre ? ` · ${r.category_nombre}` : '') +
+          (paused ? ' · pausado' : '')),
+        r.notes ? el('div', { class: 'id' }, r.notes) : null),
+      el('div', { class: 'row-actions' },
+        iconBtn({
+          label: paused ? 'Reanudar' : 'Pausar',
+          icon: paused ? 'power' : 'pause',
+          onclick: async () => {
+            setSync(paused ? 'Reanudando…' : 'Pausando…');
+            const r2 = await fetch('/api/gastos', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ entity: 'cash_recurring', id: r.id, activo: paused }),
+            });
+            if (!r2.ok) { setSync('Error'); return; }
+            setSync('');
+            loadGastosEfectivo();
+          },
+        }),
+        iconBtn({
+          label: 'Borrar',
+          icon: 'trash',
+          onclick: async () => {
+            if (!confirm(`¿Borrar fijo «${r.nombre}»?`)) return;
+            setSync('Borrando…');
+            const r2 = await fetch('/api/gastos', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'same-origin',
+              body: JSON.stringify({ entity: 'cash_recurring', id: r.id }),
+            });
+            if (!r2.ok) { setSync('Error'); return; }
+            setSync('');
+            loadGastosEfectivo();
+          },
+        })));
+  }));
+}
+
+function renderGastosCashTbl() {
+  const tb = $('#gastosCashTbl tbody');
+  if (!tb) return;
+  const txs = gastosCash?.cash_txs || [];
+  if (!txs.length) {
+    tb.replaceChildren(el('tr', {}, el('td', { colspan: '5', class: 'muted' }, 'Sin gastos en efectivo.')));
+    return;
+  }
+  tb.replaceChildren(...txs.map((t) => el('tr', {},
+    el('td', {}, String(t.fecha).slice(0, 10)),
+    el('td', {}, t.descripcion || t.merchant || t.notes || '—'),
+    el('td', { class: 'amt ' + (Number(t.amount) < 0 ? 'neg' : 'pos') }, moneyFmt(t.amount, t.currency)),
+    el('td', {}, t.category_nombre || catNombre(t.category_id) || '—'),
+    el('td', {}, iconBtn({
+      label: 'Borrar',
+      icon: 'trash',
+      onclick: async () => {
+        if (!confirm('¿Borrar este gasto en efectivo?')) return;
+        setSync('Borrando…');
+        const r2 = await fetch('/api/gastos', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ entity: 'cash_tx', id: t.id }),
+        });
+        if (!r2.ok) { setSync('Error'); return; }
+        setSync('');
+        loadGastosEfectivo();
+      },
+    })))));
+}
+
+async function loadGastosEfectivo() {
+  await loadGastosMeta(false);
+  ensureGastosMonthDefaults();
+  setSync('Cargando efectivo…');
+  const r = await fetch('/api/gastos?view=efectivo', { credentials: 'same-origin', cache: 'reload' });
+  if (r.status === 401) return showLogin();
+  if (!r.ok) { setSync('Error efectivo'); return; }
+  const data = await r.json();
+  gastosCash = data;
+  if (data.accounts || data.categories) {
+    gastos = { ...(gastos || {}), accounts: data.accounts, categories: data.categories, rules: data.rules, imports: data.imports };
+    fillAccountSelects();
+  }
+  const matured = data.matured?.created || 0;
+  const meta = $('#gastosCashMeta');
+  if (meta) {
+    meta.textContent = matured
+      ? `Se generaron ${matured} fijo(s) vencido(s).`
+      : `Hoy ${data.today || todayAR()}.`;
+  }
+  renderGastosCashRec();
+  renderGastosCashTbl();
+  setSync('');
+}
+
+$('#addCashTx')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const amount = Number($('#cashAmount')?.value);
+  const fecha = $('#cashFecha')?.value;
+  const category_id = $('#cashCat')?.value || null;
+  const notes = ($('#cashNote')?.value || '').trim();
+  if (!Number.isFinite(amount) || amount <= 0) { setSync('Monto inválido'); return; }
+  if (!fecha) { setSync('Fecha requerida'); return; }
+  setSync('Guardando…');
+  const r = await fetch('/api/gastos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({
+      entity: 'cash_tx',
+      amount,
+      fecha,
+      category_id,
+      notes: notes || null,
+      descripcion: notes || null,
+    }),
+  });
+  if (!r.ok) { setSync('Error al guardar'); return; }
+  $('#cashAmount').value = '';
+  $('#cashNote').value = '';
+  setSync('Guardado');
+  loadGastosEfectivo();
+});
+
+$('#addCashRec')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const nombre = ($('#cashRecNombre')?.value || '').trim();
+  const amount = Number($('#cashRecAmount')?.value);
+  const day_of_month = Number($('#cashRecDia')?.value);
+  const category_id = $('#cashRecCat')?.value || null;
+  const notes = ($('#cashRecNote')?.value || '').trim();
+  if (!nombre) { setSync('Nombre requerido'); return; }
+  if (!Number.isFinite(amount) || amount <= 0) { setSync('Monto inválido'); return; }
+  setSync('Guardando fijo…');
+  const r = await fetch('/api/gastos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({
+      entity: 'cash_recurring',
+      nombre,
+      amount,
+      day_of_month,
+      category_id,
+      notes: notes || null,
+    }),
+  });
+  if (!r.ok) { setSync('Error al guardar fijo'); return; }
+  $('#cashRecNombre').value = '';
+  $('#cashRecAmount').value = '';
+  $('#cashRecNote').value = '';
+  setSync('Fijo guardado');
+  loadGastosEfectivo();
+});
 
 async function loadGastosResumen() {
   await loadGastosMeta(false);
