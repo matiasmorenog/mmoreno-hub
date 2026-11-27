@@ -70,3 +70,13 @@ details p{margin-top:8px!important;color:var(--mu);font-size:14px}
 #tTable td{overflow-wrap:anywhere}
 .clamp{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .brand{display:flex;align-items:center;gap:10px}.brand img{width:28px;height:28px;flex:none}
+.subtabs{display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 14px}
+.subtabs button{border:1px solid var(--bd);background:transparent;color:var(--tx);padding:4px 12px;border-radius:999px;cursor:pointer;font:inherit;font-size:14px}
+.subtabs button.on{background:var(--tx);color:var(--bg)}
+.amt{font-variant-numeric:tabular-nums;white-space:nowrap}
+.amt.neg{color:var(--bad)}.amt.pos{color:var(--ok)}
+.flag{font-size:11px;padding:1px 6px;border-radius:999px;border:1px solid var(--bd);color:var(--mu);margin-right:4px}
+.flag.warn{color:var(--warn);border-color:currentColor}
+.flag.guard{color:var(--bad);border-color:currentColor}
+#gastosPreview td,#gastosMov td,#gastosResumenTbl td,#gastosCatTbl td{font-size:13px}
+#gastosUpload input[type=file]{flex:2;min-width:200px}

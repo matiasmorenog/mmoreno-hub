@@ -19,6 +19,7 @@
     <button data-view="brief" class="on" role="tab">Brief</button>
     <button data-view="meds" role="tab">Medicación</button>
     <button data-view="compras" role="tab">Compras</button>
+    <button data-view="gastos" role="tab">Gastos</button>
     <button data-view="tracker" role="tab">Tracker</button>
   </nav>
   <span id="sync" class="sync" aria-live="polite"></span>
@@ -91,6 +92,84 @@
       <button type="button" id="clearBought" class="ghost">Limpiar comprados</button>
     </div>
     <ul id="shopBought" class="items"></ul>
+  </section>
+
+  <section id="view-gastos" hidden>
+    <nav class="subtabs" id="gastosSubtabs" role="tablist" aria-label="Gastos">
+      <button type="button" data-gview="importar" class="on">Importar</button>
+      <button type="button" data-gview="movimientos">Movimientos</button>
+      <button type="button" data-gview="reglas">Reglas</button>
+      <button type="button" data-gview="resumen">Resumen</button>
+    </nav>
+
+    <div id="gastos-importar">
+      <p class="muted">Subí CSV MP billetera, XLSX Santander caja, o PDF (MP tarjeta / Visa / Amex). El archivo se hashea; si ya se confirmó, no se duplica.</p>
+      <form id="gastosUpload" class="add-row">
+        <input id="gFile" type="file" accept=".csv,.xlsx,.xls,.pdf,text/csv,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+        <select id="gAccountHint" aria-label="Cuenta (opcional)">
+          <option value="">Detectar cuenta</option>
+          <option value="mp_wallet">MP billetera</option>
+          <option value="mp_card">MP tarjeta</option>
+          <option value="santander_caja">Santander caja</option>
+          <option value="santander_visa">Santander Visa</option>
+          <option value="santander_amex">Santander Amex</option>
+        </select>
+        <button type="submit">Vista previa</button>
+      </form>
+      <p id="gastosImportMeta" class="muted"></p>
+      <div id="gastosPreviewWrap" hidden>
+        <div class="shop-bought-head">
+          <h2>Vista previa</h2>
+          <button type="button" id="gastosConfirm" class="add-row" style="padding:7px 14px;border:0;border-radius:8px;background:var(--ac);color:#fff;cursor:pointer">Confirmar import</button>
+        </div>
+        <div class="tablewrap"><table class="tbl" id="gastosPreview">
+          <thead><tr><th>Fecha</th><th>Descripción</th><th>Monto</th><th>Moneda</th><th>Flags</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div id="gastos-movimientos" hidden>
+      <div class="filters">
+        <select id="gFiltroCuenta"><option value="">Todas las cuentas</option></select>
+        <input id="gFiltroMes" type="month" aria-label="Mes">
+        <label class="muted small"><input type="checkbox" id="gIncluirExcluidos"> Incluir excluidos</label>
+        <span id="gMovCount" class="muted"></span>
+      </div>
+      <div class="tablewrap"><table class="tbl" id="gastosMov">
+        <thead><tr><th>Fecha</th><th>Cuenta</th><th>Descripción</th><th>Monto</th><th>Categoría</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+
+    <div id="gastos-reglas" hidden>
+      <form id="addRegla" class="add-row">
+        <input id="rPattern" type="text" placeholder="Texto a buscar (merchant/desc)" required maxlength="200" autocomplete="off">
+        <select id="rCategory"><option value="">Sin categoría</option></select>
+        <select id="rAccount"><option value="">Todas las cuentas</option></select>
+        <label class="muted small"><input type="checkbox" id="rExclude"> Excluir gasto</label>
+        <button type="submit">Agregar regla</button>
+      </form>
+      <ul id="gastosRules" class="items"></ul>
+    </div>
+
+    <div id="gastos-resumen" hidden>
+      <div class="filters">
+        <select id="gResCuenta"><option value="">Todas las cuentas</option></select>
+        <input id="gResMes" type="month" aria-label="Mes resumen">
+      </div>
+      <div class="grid3" id="gastosResumenCards"></div>
+      <h2>Por mes (ARS / USD)</h2>
+      <div class="tablewrap"><table class="tbl" id="gastosResumenTbl">
+        <thead><tr><th>Mes</th><th>Moneda</th><th>Gasto</th><th>Ingreso</th><th>Excluido</th><th>Merpago guard</th><th>N</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <h2>Por categoría</h2>
+      <div class="tablewrap"><table class="tbl" id="gastosCatTbl">
+        <thead><tr><th>Categoría</th><th>Moneda</th><th>Total</th><th>N</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
   </section>
 
   <section id="view-tracker" hidden>

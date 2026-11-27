@@ -8,6 +8,7 @@ const LS = {
 const DEBOUNCE_MS = 2500;
 const RECENT_MS = 5 * 60 * 1000; // superpone tildes confirmadas sobre un GET cacheado
 let brief = null, timer = null, tracker = null, meds = null, medTimer = null, shopping = null, shopTimer = null;
+let gastos = null, gastosPreview = null, gastosFileB64 = null, gastosFileName = null, gastosSub = 'importar';
 const MOMENTO_LABEL = { manana: 'Mañana', mediodia: 'Mediodía', noche: 'Noche' };
 
 function el(tag, attrs = {}, ...kids) {
@@ -492,6 +493,332 @@ $('#clearBought').addEventListener('click', async () => {
   } catch { setSync('No se pudo limpiar'); }
 });
 
+// ---------- gastos ----------
+const moneyFmt = (n, cur = 'ARS') => {
+  if (n == null || n === '') return '';
+  const v = Number(n);
+  if (!Number.isFinite(v)) return '';
+  try {
+    return new Intl.NumberFormat('es-AR', { style: 'currency', currency: cur === 'USD' ? 'USD' : 'ARS', maximumFractionDigits: 2 }).format(v);
+  } catch {
+    return `${v} ${cur}`;
+  }
+};
+function fillAccountSelects() {
+  if (!gastos?.accounts) return;
+  for (const sel of [$('#gFiltroCuenta'), $('#gResCuenta'), $('#rAccount')]) {
+    if (!sel) continue;
+    const cur = sel.value;
+    const first = sel.options[0];
+    sel.replaceChildren(first);
+    for (const a of gastos.accounts) sel.append(el('option', { value: a.id }, a.nombre));
+    sel.value = [...sel.options].some((o) => o.value === cur) ? cur : '';
+  }
+  const catSel = $('#rCategory');
+  if (catSel) {
+    const cur = catSel.value;
+    catSel.replaceChildren(el('option', { value: '' }, 'Sin categoría'));
+    for (const c of gastos.categories || []) catSel.append(el('option', { value: c.id }, c.nombre));
+    catSel.value = [...catSel.options].some((o) => o.value === cur) ? cur : '';
+  }
+}
+function showGastosSub(sub) {
+  gastosSub = sub;
+  for (const s of ['importar', 'movimientos', 'reglas', 'resumen']) {
+    const n = $('#gastos-' + s);
+    if (n) n.hidden = s !== sub;
+  }
+  document.querySelectorAll('#gastosSubtabs button').forEach((b) => b.classList.toggle('on', b.dataset.gview === sub));
+  if (sub === 'movimientos') loadGastosMov();
+  if (sub === 'reglas') renderGastosRules();
+  if (sub === 'resumen') loadGastosResumen();
+}
+document.querySelectorAll('#gastosSubtabs button').forEach((b) => b.addEventListener('click', () => showGastosSub(b.dataset.gview)));
+
+async function loadGastosMeta(force) {
+  if (gastos && !force) { fillAccountSelects(); return gastos; }
+  setSync('Cargando gastos…');
+  const r = await fetch('/api/gastos?view=meta', { credentials: 'same-origin', cache: force ? 'reload' : 'default' });
+  if (r.status === 401) return showLogin();
+  if (!r.ok) { setSync('Error gastos (' + r.status + ')'); return null; }
+  gastos = await r.json();
+  fillAccountSelects();
+  setSync('');
+  return gastos;
+}
+
+function renderGastosPreview() {
+  const wrap = $('#gastosPreviewWrap');
+  const meta = $('#gastosImportMeta');
+  if (!gastosPreview) { wrap.hidden = true; return; }
+  wrap.hidden = false;
+  const s = gastosPreview.summary || {};
+  const warns = (gastosPreview.warnings || []).join(', ');
+  meta.textContent = `${gastosPreview.account_id} · ${gastosPreview.source_format} · ${gastosPreview.txs.length} movs` +
+    (s.balance_check_ok === false ? ' · ⚠ summary mismatch' : s.balance_check_ok ? ' · summary OK' : '') +
+    (warns ? ' · ' + warns : '');
+  const tb = $('#gastosPreview tbody');
+  tb.replaceChildren(...gastosPreview.txs.slice(0, 200).map((t) => {
+    const flags = [];
+    if (t.is_internal_transfer) flags.push(el('span', { class: 'flag' }, 'interna'));
+    if (t.is_excluded) flags.push(el('span', { class: 'flag warn' }, 'excluida'));
+    if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'merpago'));
+    return el('tr', {},
+      el('td', {}, t.fecha),
+      el('td', {}, t.descripcion || t.merchant || ''),
+      el('td', { class: 'amt ' + (t.amount < 0 ? 'neg' : 'pos') }, moneyFmt(t.amount, t.currency)),
+      el('td', {}, t.currency),
+      el('td', {}, ...flags));
+  }));
+}
+
+$('#gastosUpload').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const file = $('#gFile').files?.[0];
+  if (!file) return;
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  setSync('Parseando…');
+  try {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let bin = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    gastosFileB64 = btoa(bin);
+    gastosFileName = file.name;
+    const account_id = $('#gAccountHint').value || null;
+    const r = await fetch('/api/gastos-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({ action: 'preview', filename: file.name, content_base64: gastosFileB64, account_id }),
+    });
+    if (r.status === 401) return showLogin();
+    if (r.status === 409) {
+      const err = await r.json();
+      setSync('Archivo ya importado');
+      $('#gastosImportMeta').textContent = 'Duplicado: ' + (err.filename || err.import_id);
+      gastosPreview = null;
+      renderGastosPreview();
+      return;
+    }
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      setSync('No se pudo parsear');
+      $('#gastosImportMeta').textContent = err.error || ('HTTP ' + r.status);
+      return;
+    }
+    gastosPreview = await r.json();
+    renderGastosPreview();
+    setSync('Vista previa lista');
+  } catch {
+    setSync('Error al leer archivo');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#gastosConfirm').addEventListener('click', async () => {
+  if (!gastosFileB64 || !gastosPreview) return;
+  if (!confirm(`¿Confirmar import de ${gastosPreview.txs.length} movimientos?`)) return;
+  setSync('Confirmando…');
+  $('#gastosConfirm').disabled = true;
+  try {
+    const r = await fetch('/api/gastos-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        action: 'confirm',
+        filename: gastosFileName,
+        content_base64: gastosFileB64,
+        account_id: gastosPreview.account_id,
+      }),
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      setSync(err.error === 'duplicate_file' ? 'Ya importado' : 'No se pudo confirmar');
+      return;
+    }
+    const out = await r.json();
+    setSync(`Import OK · ${out.upserted} upsert`);
+    gastosPreview = null;
+    gastosFileB64 = null;
+    renderGastosPreview();
+    $('#gastosImportMeta').textContent = `Confirmado ${out.import_id} · ${out.upserted} movimientos`;
+    await loadGastosMeta(true);
+  } catch {
+    setSync('Error al confirmar');
+  } finally {
+    $('#gastosConfirm').disabled = false;
+  }
+});
+
+async function loadGastosMov() {
+  await loadGastosMeta(false);
+  const account_id = $('#gFiltroCuenta').value;
+  const month = $('#gFiltroMes').value;
+  const include = $('#gIncluirExcluidos').checked ? '1' : '0';
+  const qs = new URLSearchParams({ view: 'movimientos', include_excluded: include });
+  if (account_id) qs.set('account_id', account_id);
+  if (month) qs.set('month', month);
+  setSync('Cargando movimientos…');
+  const r = await fetch('/api/gastos?' + qs, { credentials: 'same-origin' });
+  if (r.status === 401) return showLogin();
+  if (!r.ok) { setSync('Error movimientos'); return; }
+  const data = await r.json();
+  gastos = { ...gastos, ...data };
+  fillAccountSelects();
+  $('#gMovCount').textContent = `${(data.transactions || []).length} filas`;
+  const cats = data.categories || [];
+  const tb = $('#gastosMov tbody');
+  tb.replaceChildren(...(data.transactions || []).map((t) => {
+    const sel = el('select', {
+      onchange: async (e) => {
+        setSync('Guardando…');
+        const r2 = await fetch('/api/gastos', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ id: t.id, category_id: e.target.value || null }),
+        });
+        setSync(r2.ok ? 'Guardado' : 'Error');
+      },
+    }, el('option', { value: '' }, '—'));
+    for (const c of cats) sel.append(el('option', { value: c.id, selected: c.id === t.category_id }, c.nombre));
+    const flags = [];
+    if (t.is_excluded) flags.push(el('span', { class: 'flag warn' }, 'excl'));
+    if (t.double_count_guard) flags.push(el('span', { class: 'flag guard' }, 'mp'));
+    return el('tr', {},
+      el('td', {}, String(t.fecha).slice(0, 10)),
+      el('td', {}, t.account_nombre || t.account_id),
+      el('td', {}, t.descripcion || t.merchant || '', flags.length ? el('div', {}, ...flags) : null),
+      el('td', { class: 'amt ' + (Number(t.amount) < 0 ? 'neg' : 'pos') }, moneyFmt(t.amount, t.currency)),
+      el('td', {}, sel),
+      el('td', {}, el('button', {
+        type: 'button',
+        class: 'ghost',
+        onclick: async () => {
+          const r2 = await fetch('/api/gastos', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ id: t.id, is_excluded: !t.is_excluded }),
+          });
+          if (r2.ok) loadGastosMov();
+        },
+      }, t.is_excluded ? 'Incluir' : 'Excluir')));
+  }));
+  setSync('');
+}
+for (const id of ['#gFiltroCuenta', '#gFiltroMes', '#gIncluirExcluidos']) {
+  $(id)?.addEventListener('change', () => { if (gastosSub === 'movimientos') loadGastosMov(); });
+}
+
+function renderGastosRules() {
+  if (!gastos) return;
+  const ul = $('#gastosRules');
+  const rules = gastos.rules || [];
+  ul.replaceChildren(...rules.map((r) => el('li', {},
+    el('div', { class: 'body' },
+      el('div', { class: 't' }, r.pattern),
+      el('div', { class: 'd' }, [
+        r.account_id || 'todas',
+        r.category_id || 'sin cat',
+        r.exclude_expense ? 'excluir' : 'categorizar',
+        'p' + r.priority,
+      ].join(' · '))),
+    iconBtn({
+      label: 'Borrar regla',
+      icon: 'trash',
+      danger: true,
+      onclick: async () => {
+        const res = await fetch('/api/gastos', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ entity: 'rule', id: r.id }),
+        });
+        if (res.ok) { await loadGastosMeta(true); renderGastosRules(); }
+      },
+    }))));
+  if (!rules.length) ul.append(el('li', { class: 'muted' }, 'Sin reglas todavía.'));
+}
+$('#addRegla').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pattern = $('#rPattern').value.trim();
+  if (!pattern) return;
+  const btn = e.target.querySelector('button');
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/gastos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        entity: 'rule',
+        pattern,
+        category_id: $('#rCategory').value || null,
+        account_id: $('#rAccount').value || null,
+        exclude_expense: $('#rExclude').checked,
+      }),
+    });
+    if (r.status === 401) return showLogin();
+    if (!r.ok) throw new Error(r.status);
+    e.target.reset();
+    await loadGastosMeta(true);
+    renderGastosRules();
+    setSync('Regla agregada');
+  } catch { setSync('No se pudo agregar regla'); }
+  finally { btn.disabled = false; }
+});
+
+async function loadGastosResumen() {
+  await loadGastosMeta(false);
+  const account_id = $('#gResCuenta').value;
+  const month = $('#gResMes').value;
+  const qs = new URLSearchParams({ view: 'resumen' });
+  if (account_id) qs.set('account_id', account_id);
+  if (month) qs.set('month', month);
+  setSync('Cargando resumen…');
+  const r = await fetch('/api/gastos?' + qs, { credentials: 'same-origin' });
+  if (r.status === 401) return showLogin();
+  if (!r.ok) { setSync('Error resumen'); return; }
+  const data = await r.json();
+  const rows = data.resumen || [];
+  let spendArs = 0, spendUsd = 0, incomeArs = 0, incomeUsd = 0;
+  for (const row of rows) {
+    const spend = Math.abs(Number(row.spend) || 0);
+    const income = Number(row.income) || 0;
+    if (row.currency === 'USD') { spendUsd += spend; incomeUsd += income; }
+    else { spendArs += spend; incomeArs += income; }
+  }
+  $('#gastosResumenCards').replaceChildren(
+    el('div', { class: 'card' }, el('h3', {}, 'Gasto ARS'), el('p', {}, moneyFmt(-spendArs, 'ARS'))),
+    el('div', { class: 'card' }, el('h3', {}, 'Gasto USD'), el('p', {}, moneyFmt(-spendUsd, 'USD'))),
+    el('div', { class: 'card' }, el('h3', {}, 'Ingresos ARS'), el('p', {}, moneyFmt(incomeArs, 'ARS'))),
+  );
+  $('#gastosResumenTbl tbody').replaceChildren(...rows.map((row) => el('tr', {},
+    el('td', {}, row.month),
+    el('td', {}, row.currency),
+    el('td', { class: 'amt neg' }, moneyFmt(row.spend, row.currency)),
+    el('td', { class: 'amt pos' }, moneyFmt(row.income, row.currency)),
+    el('td', {}, moneyFmt(row.excluded, row.currency)),
+    el('td', {}, moneyFmt(row.guarded_merpago, row.currency)),
+    el('td', {}, row.n))));
+  $('#gastosCatTbl tbody').replaceChildren(...(data.by_category || []).map((row) => el('tr', {},
+    el('td', {}, row.category),
+    el('td', {}, row.currency),
+    el('td', { class: 'amt' }, moneyFmt(row.total, row.currency)),
+    el('td', {}, row.n))));
+  setSync('');
+}
+for (const id of ['#gResCuenta', '#gResMes']) {
+  $(id)?.addEventListener('change', () => { if (gastosSub === 'resumen') loadGastosResumen(); });
+}
+
 // ---------- tracker (a demanda, cacheado por versión) ----------
 async function loadTracker() {
   if (tracker) return renderTracker();
@@ -531,16 +858,17 @@ let ft; for (const id of ['#fEmpresa', '#fEstado', '#fSeccion']) $(id).addEventL
 // ---------- vistas / login ----------
 function show(view) {
   $('#login').hidden = true;
-  for (const v of ['brief', 'meds', 'compras', 'tracker']) $('#view-' + v).hidden = v !== view;
+  for (const v of ['brief', 'meds', 'compras', 'gastos', 'tracker']) $('#view-' + v).hidden = v !== view;
   document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('on', b.dataset.view === view));
   if (view === 'tracker') loadTracker();
   if (view === 'meds') loadMeds(false);
   if (view === 'compras') loadShopping(false);
+  if (view === 'gastos') { loadGastosMeta(false).then(() => showGastosSub(gastosSub)); }
   if (location.hash !== '#' + view) history.replaceState(null, '', '#' + view);
 }
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => brief && show(b.dataset.view)));
 function showLogin() {
-  for (const v of ['brief', 'meds', 'compras', 'tracker']) $('#view-' + v).hidden = true;
+  for (const v of ['brief', 'meds', 'compras', 'gastos', 'tracker']) $('#view-' + v).hidden = true;
   $('#login').hidden = false; $('#pw').focus();
 }
 $('#loginForm').addEventListener('submit', async (e) => {
@@ -561,7 +889,7 @@ async function start(fresh) {
   brief = await r.json();
   renderBrief();
   const hash = (location.hash || '').slice(1);
-  show(['tracker', 'meds', 'compras'].includes(hash) ? hash : 'brief');
+  show(['tracker', 'meds', 'compras', 'gastos'].includes(hash) ? hash : 'brief');
   if (Object.keys(pending()).length) flush(); // reenvía lo que quedó de una sesión anterior
 }
 start(false);

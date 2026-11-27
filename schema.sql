@@ -123,3 +123,109 @@ INSERT INTO shopping_items (id, nombre, cantidad, notas, comprado, orden) VALUES
   ('pan', 'Pan', '1', NULL, false, 20),
   ('huevos', 'Huevos', 'docena', NULL, false, 30)
 ON CONFLICT (id) DO NOTHING;
+
+-- Gastos (expense tracker)
+CREATE TABLE IF NOT EXISTS accounts (
+  id text PRIMARY KEY,
+  nombre text NOT NULL,
+  tipo text NOT NULL CHECK (tipo IN (
+    'mp_wallet', 'mp_card', 'santander_caja', 'santander_visa', 'santander_amex'
+  )),
+  moneda_default text NOT NULL DEFAULT 'ARS',
+  activo boolean NOT NULL DEFAULT true,
+  orden int NOT NULL DEFAULT 100,
+  creado timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS categories (
+  id text PRIMARY KEY,
+  nombre text NOT NULL,
+  color text,
+  orden int NOT NULL DEFAULT 100,
+  activo boolean NOT NULL DEFAULT true,
+  creado timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS category_rules (
+  id text PRIMARY KEY,
+  pattern text NOT NULL,
+  category_id text REFERENCES categories(id) ON DELETE SET NULL,
+  account_id text REFERENCES accounts(id) ON DELETE CASCADE,
+  priority int NOT NULL DEFAULT 100,
+  -- When true, matching txs are internal/own-account transfers (excluded from spend).
+  exclude_expense boolean NOT NULL DEFAULT false,
+  activo boolean NOT NULL DEFAULT true,
+  creado timestamptz NOT NULL DEFAULT now(),
+  actualizado timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS category_rules_priority_idx
+  ON category_rules (activo, priority, id);
+
+CREATE TABLE IF NOT EXISTS imports (
+  id text PRIMARY KEY,
+  account_id text NOT NULL REFERENCES accounts(id),
+  filename text NOT NULL,
+  file_hash text NOT NULL,
+  source_format text NOT NULL,
+  status text NOT NULL CHECK (status IN ('preview', 'confirmed', 'duplicate')),
+  summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+  creado timestamptz NOT NULL DEFAULT now(),
+  confirmado_en timestamptz
+);
+CREATE UNIQUE INDEX IF NOT EXISTS imports_file_hash_uidx ON imports (file_hash);
+CREATE INDEX IF NOT EXISTS imports_account_creado_idx ON imports (account_id, creado DESC);
+
+CREATE TABLE IF NOT EXISTS transactions (
+  id text PRIMARY KEY,
+  account_id text NOT NULL REFERENCES accounts(id),
+  import_id text REFERENCES imports(id) ON DELETE SET NULL,
+  fingerprint text NOT NULL,
+  fecha date NOT NULL,
+  descripcion text,
+  merchant text,
+  tx_type text,
+  amount numeric NOT NULL,
+  currency text NOT NULL DEFAULT 'ARS' CHECK (currency IN ('ARS', 'USD')),
+  amount_ars numeric,
+  amount_usd numeric,
+  category_id text REFERENCES categories(id) ON DELETE SET NULL,
+  is_internal_transfer boolean NOT NULL DEFAULT false,
+  is_excluded boolean NOT NULL DEFAULT false,
+  double_count_guard boolean NOT NULL DEFAULT false,
+  notes text,
+  raw jsonb NOT NULL DEFAULT '{}'::jsonb,
+  creado timestamptz NOT NULL DEFAULT now(),
+  actualizado timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (account_id, fingerprint)
+);
+CREATE INDEX IF NOT EXISTS transactions_fecha_idx ON transactions (fecha DESC);
+CREATE INDEX IF NOT EXISTS transactions_account_fecha_idx ON transactions (account_id, fecha DESC);
+CREATE INDEX IF NOT EXISTS transactions_category_idx ON transactions (category_id);
+CREATE INDEX IF NOT EXISTS transactions_excluded_idx ON transactions (is_excluded, fecha DESC);
+
+INSERT INTO accounts (id, nombre, tipo, moneda_default, orden) VALUES
+  ('mp_wallet', 'Mercado Pago billetera', 'mp_wallet', 'ARS', 10),
+  ('mp_card', 'Mercado Pago tarjeta', 'mp_card', 'ARS', 20),
+  ('santander_caja', 'Santander caja', 'santander_caja', 'ARS', 30),
+  ('santander_visa', 'Santander Visa', 'santander_visa', 'ARS', 40),
+  ('santander_amex', 'Santander Amex', 'santander_amex', 'ARS', 50)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO categories (id, nombre, orden) VALUES
+  ('comida', 'Comida', 10),
+  ('transporte', 'Transporte', 20),
+  ('suscripciones', 'Suscripciones', 30),
+  ('servicios', 'Servicios', 40),
+  ('transferencias', 'Transferencias', 50),
+  ('impuestos', 'Impuestos', 60),
+  ('ingresos', 'Ingresos', 70),
+  ('reintegros', 'Reintegros', 80),
+  ('otros', 'Otros', 90)
+ON CONFLICT (id) DO NOTHING;
+
+-- Own-account transfer patterns (exclude from spend). Third-party transfers stay categorizable.
+INSERT INTO category_rules (id, pattern, category_id, account_id, priority, exclude_expense, activo) VALUES
+  ('own-mp-moreno-matias', 'Moreno Matias', 'transferencias', 'mp_wallet', 10, true, true),
+  ('own-mp-moreno-upper', 'MORENO MATIAS', 'transferencias', 'mp_wallet', 10, true, true),
+  ('guard-amex-merpago', 'Merpago', NULL, 'santander_amex', 5, true, true)
+ON CONFLICT (id) DO NOTHING;

@@ -1,0 +1,7 @@
+Resumen American Express
+Detalle de consumos en el pais
+Fecha Descripcion Cuota Comprobante Pesos
+05/10/26 Cafe Demo SA 000001 123456 $ 1.500,00
+06/10/26 Merpago*DemoStore 000001 654321 $ 2.200,50
+07/10/26 Super Demo 000001 111222 $ 800,00
+Total consumos A pesos $ 4.500,50 U$S 0,00

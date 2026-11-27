@@ -2,6 +2,15 @@
   "name": "mmoreno-hub",
   "private": true,
   "type": "module",
-  "engines": { "node": "22.x" },
-  "dependencies": { "@neondatabase/serverless": "^1.0.0" }
+  "engines": {
+    "node": "22.x"
+  },
+  "scripts": {
+    "test:gastos": "node --test site/api/_lib/gastos/test-parsers.mjs"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.0.0",
+    "pdf-parse": "^2.4.5",
+    "xlsx": "^0.18.5"
+  }
 }
