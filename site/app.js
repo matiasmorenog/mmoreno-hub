@@ -117,6 +117,27 @@ function tabLink(label, url, tab) {
 }
 function setSync(t) { $('#sync').textContent = t; }
 
+/** Focus without hard jump; smooth-scroll the field into view so edit target is obvious. */
+function softFocusEdit(el) {
+  if (!el) return;
+  try { el.focus({ preventScroll: true }); } catch { try { el.focus(); } catch { /* ignore */ } }
+  try {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+  } catch {
+    try { el.scrollIntoView(true); } catch { /* ignore */ }
+  }
+}
+
+/** Keep window scroll across list re-renders (expand/save/delete). */
+function withPreservedScroll(fn) {
+  const y = window.scrollY || window.pageYOffset || 0;
+  const x = window.scrollX || window.pageXOffset || 0;
+  fn();
+  requestAnimationFrame(() => {
+    window.scrollTo(x, y);
+  });
+}
+
 // ---------- estado de tildes ----------
 const pending = () => LS.get('mb_pending', {});
 function effectiveDone(it) {
@@ -923,25 +944,27 @@ function startCategoriaEdit(c) {
   if ($('#cNombre')) $('#cNombre').value = c.nombre || '';
   if ($('#cSubmit')) $('#cSubmit').textContent = 'Guardar';
   if ($('#cCancelEdit')) $('#cCancelEdit').hidden = false;
-  $('#cNombre')?.focus();
+  softFocusEdit($('#cNombre'));
   setSync('Editando categoría');
 }
 
 function renderGastosCats() {
-  if (!gastos) return;
-  const ul = $('#gastosCats');
-  if (!ul) return;
-  const cats = gastos.categories || [];
-  ul.replaceChildren(...cats.map((c) => el('li', {},
-    el('div', { class: 'body' },
-      el('div', { class: 't' }, c.nombre)),
-    el('div', { class: 'row-actions' },
-      iconBtn({
-        label: 'Editar categoría',
-        icon: 'edit',
-        onclick: () => startCategoriaEdit(c),
-      })))));
-  if (!cats.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay categorías.'));
+  withPreservedScroll(() => {
+    if (!gastos) return;
+    const ul = $('#gastosCats');
+    if (!ul) return;
+    const cats = gastos.categories || [];
+    ul.replaceChildren(...cats.map((c) => el('li', {},
+      el('div', { class: 'body' },
+        el('div', { class: 't' }, c.nombre)),
+      el('div', { class: 'row-actions' },
+        iconBtn({
+          label: 'Editar categoría',
+          icon: 'edit',
+          onclick: () => startCategoriaEdit(c),
+        })))));
+    if (!cats.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay categorías.'));
+  });
 }
 function clearReglaEdit() {
   const form = $('#addRegla');
@@ -961,7 +984,7 @@ function startReglaEdit(r) {
   if ($('#rExclude')) $('#rExclude').checked = !!r.exclude_expense;
   if ($('#rSubmit')) $('#rSubmit').textContent = 'Guardar';
   if ($('#rCancelEdit')) $('#rCancelEdit').hidden = false;
-  $('#rPattern')?.focus();
+  softFocusEdit($('#rPattern'));
   setSync('Editando regla');
 }
 
@@ -1011,96 +1034,98 @@ function deleteRegla(r) {
 }
 
 function renderGastosRules() {
-  if (!gastos) return;
-  const ul = $('#gastosRules');
-  if (!ul) return;
-  const q = ($('#rFilter')?.value || '').trim().toLowerCase();
-  const all = gastos.rules || [];
-  const rules = q ? all.filter((r) => ruleSearchHay(r).includes(q)) : all;
-  if ($('#rFilterCount')) {
-    $('#rFilterCount').textContent = q
-      ? `${rules.length} de ${all.length}`
-      : (all.length ? `${all.length} reglas` : '');
-  }
+  withPreservedScroll(() => {
+    if (!gastos) return;
+    const ul = $('#gastosRules');
+    if (!ul) return;
+    const q = ($('#rFilter')?.value || '').trim().toLowerCase();
+    const all = gastos.rules || [];
+    const rules = q ? all.filter((r) => ruleSearchHay(r).includes(q)) : all;
+    if ($('#rFilterCount')) {
+      $('#rFilterCount').textContent = q
+        ? `${rules.length} de ${all.length}`
+        : (all.length ? `${all.length} reglas` : '');
+    }
 
-  const byGroup = new Map();
-  for (const r of rules) {
-    const key = ruleGroupKey(r);
-    if (!byGroup.has(key)) byGroup.set(key, []);
-    byGroup.get(key).push(r);
-  }
-  const groups = [...byGroup.entries()]
-    .map(([key, list]) => {
-      const meta = ruleGroupMeta(key);
-      list.sort((a, b) =>
-        (a.priority - b.priority)
-        || String(a.pattern || '').localeCompare(String(b.pattern || ''), 'es')
-        || String(a.id).localeCompare(String(b.id)));
-      return { key, ...meta, rules: list };
-    })
-    .sort((a, b) => (a.orden - b.orden) || a.title.localeCompare(b.title, 'es'));
+    const byGroup = new Map();
+    for (const r of rules) {
+      const key = ruleGroupKey(r);
+      if (!byGroup.has(key)) byGroup.set(key, []);
+      byGroup.get(key).push(r);
+    }
+    const groups = [...byGroup.entries()]
+      .map(([key, list]) => {
+        const meta = ruleGroupMeta(key);
+        list.sort((a, b) =>
+          (a.priority - b.priority)
+          || String(a.pattern || '').localeCompare(String(b.pattern || ''), 'es')
+          || String(a.id).localeCompare(String(b.id)));
+        return { key, ...meta, rules: list };
+      })
+      .sort((a, b) => (a.orden - b.orden) || a.title.localeCompare(b.title, 'es'));
 
-  // Auto-expand groups that match search so hits are visible.
-  if (q) {
-    for (const g of groups) gastosRuleGroupsOpen.add(g.key);
-  }
+    // Auto-expand groups that match search so hits are visible.
+    if (q) {
+      for (const g of groups) gastosRuleGroupsOpen.add(g.key);
+    }
 
-  ul.replaceChildren(...groups.map((g) => {
-    const open = gastosRuleGroupsOpen.has(g.key);
-    const preview = g.rules.slice(0, 6).map((r) => r.pattern).filter(Boolean);
-    const more = g.rules.length > preview.length ? ` +${g.rules.length - preview.length}` : '';
-    const head = el('button', {
-      type: 'button',
-      class: 'rule-group-head',
-      'aria-expanded': open ? 'true' : 'false',
-      onclick: () => {
-        if (gastosRuleGroupsOpen.has(g.key)) gastosRuleGroupsOpen.delete(g.key);
-        else gastosRuleGroupsOpen.add(g.key);
-        renderGastosRules();
+    ul.replaceChildren(...groups.map((g) => {
+      const open = gastosRuleGroupsOpen.has(g.key);
+      const preview = g.rules.slice(0, 6).map((r) => r.pattern).filter(Boolean);
+      const more = g.rules.length > preview.length ? ` +${g.rules.length - preview.length}` : '';
+      const head = el('button', {
+        type: 'button',
+        class: 'rule-group-head',
+        'aria-expanded': open ? 'true' : 'false',
+        onclick: () => {
+          if (gastosRuleGroupsOpen.has(g.key)) gastosRuleGroupsOpen.delete(g.key);
+          else gastosRuleGroupsOpen.add(g.key);
+          renderGastosRules();
+        },
       },
-    },
-      el('span', { class: 'rule-group-chevron', 'aria-hidden': 'true' }, open ? '▾' : '▸'),
-      el('span', { class: 'rule-group-title' }, g.title),
-      el('span', { class: 'rule-group-count muted small' },
-        `${g.rules.length} regla${g.rules.length === 1 ? '' : 's'}`),
-      (!open && preview.length
-        ? el('span', { class: 'rule-group-preview muted small' },
-          `Si el texto contiene: ${preview.join(', ')}${more}`)
-        : null));
+        el('span', { class: 'rule-group-chevron', 'aria-hidden': 'true' }, open ? '▾' : '▸'),
+        el('span', { class: 'rule-group-title' }, g.title),
+        el('span', { class: 'rule-group-count muted small' },
+          `${g.rules.length} regla${g.rules.length === 1 ? '' : 's'}`),
+        (!open && preview.length
+          ? el('span', { class: 'rule-group-preview muted small' },
+            `Si el texto contiene: ${preview.join(', ')}${more}`)
+          : null));
 
-    const body = el('div', {
-      class: 'rule-group-body',
-      hidden: !open,
-    },
-      el('p', { class: 'rule-group-lead muted small' }, 'Si el texto contiene:'),
-      el('div', { class: 'rule-tag-list' },
-        ...g.rules.map((r) => {
-          const acct = accountNombre(r.account_id);
-          const bits = [];
-          if (acct) bits.push(`solo ${acct}`);
-          if (r.exclude_expense) bits.push('excluir gasto');
-          return el('div', { class: 'rule-tag-row' },
-            el('span', { class: 'rule-tag', title: r.pattern }, r.pattern),
-            bits.length ? el('span', { class: 'rule-tag-meta muted small' }, bits.join(' · ')) : null,
-            el('div', { class: 'row-actions' },
-              iconBtn({
-                label: `Editar «${r.pattern}»`,
-                icon: 'edit',
-                onclick: () => startReglaEdit(r),
-              }),
-              iconBtn({
-                label: `Borrar «${r.pattern}»`,
-                icon: 'trash',
-                danger: true,
-                onclick: deleteRegla(r),
-              })));
-        })));
+      const body = el('div', {
+        class: 'rule-group-body',
+        hidden: !open,
+      },
+        el('p', { class: 'rule-group-lead muted small' }, 'Si el texto contiene:'),
+        el('div', { class: 'rule-tag-list' },
+          ...g.rules.map((r) => {
+            const acct = accountNombre(r.account_id);
+            const bits = [];
+            if (acct) bits.push(`solo ${acct}`);
+            if (r.exclude_expense) bits.push('excluir gasto');
+            return el('div', { class: 'rule-tag-row' },
+              el('span', { class: 'rule-tag', title: r.pattern }, r.pattern),
+              bits.length ? el('span', { class: 'rule-tag-meta muted small' }, bits.join(' · ')) : null,
+              el('div', { class: 'row-actions' },
+                iconBtn({
+                  label: `Editar «${r.pattern}»`,
+                  icon: 'edit',
+                  onclick: () => startReglaEdit(r),
+                }),
+                iconBtn({
+                  label: `Borrar «${r.pattern}»`,
+                  icon: 'trash',
+                  danger: true,
+                  onclick: deleteRegla(r),
+                })));
+          })));
 
-    return el('li', { class: 'rule-group' + (open ? ' open' : '') }, head, body);
-  }));
+      return el('li', { class: 'rule-group' + (open ? ' open' : '') }, head, body);
+    }));
 
-  if (!all.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay reglas.'));
-  else if (!rules.length) ul.append(el('li', { class: 'muted' }, 'Ninguna regla coincide con la búsqueda.'));
+    if (!all.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay reglas.'));
+    else if (!rules.length) ul.append(el('li', { class: 'muted' }, 'Ninguna regla coincide con la búsqueda.'));
+  });
 }
 $('#cCancelEdit')?.addEventListener('click', () => {
   clearCategoriaEdit();
