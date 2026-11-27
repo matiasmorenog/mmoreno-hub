@@ -273,16 +273,61 @@ $('#addPendiente').addEventListener('submit', async (e) => {
 
 // ---------- medicación ----------
 const medPending = () => LS.get('mb_med_pending', {});
-function medEffective(it) {
+function medKey(id, fecha) {
+  return `${id}@${fecha || (meds && meds.hoy) || ''}`;
+}
+function medParseKey(key) {
+  const i = key.indexOf('@');
+  if (i < 0) return { id: key, fecha: null };
+  return { id: key.slice(0, i), fecha: key.slice(i + 1) || null };
+}
+function medEffective(it, fecha) {
+  const f = fecha || (meds && meds.hoy) || '';
+  const key = medKey(it.id, f);
   const p = medPending();
-  if (it.id in p) return p[it.id];
-  const r = LS.get('mb_med_recent', {})[it.id];
+  if (key in p) return p[key];
+  if (it.id in p && (!f || f === (meds && meds.hoy))) return p[it.id]; // legacy key
+  const recent = LS.get('mb_med_recent', {});
+  const r = recent[key] || (( !f || f === (meds && meds.hoy)) ? recent[it.id] : null);
   if (r && Date.now() - r.t < RECENT_MS) return r.tomado;
+  if (fecha && fecha !== (meds && meds.hoy)) return false;
   return !!it.tomado;
 }
-function medToggle(id, tomado) {
-  const p = medPending(); p[id] = tomado; LS.set('mb_med_pending', p);
-  document.querySelectorAll(`[data-med="${CSS.escape(id)}"]`).forEach((n) => n.classList.toggle('done', tomado));
+function medApplyLocal(id, fecha, tomado) {
+  if (!meds) return;
+  const hoy = meds.hoy;
+  if (!fecha || fecha === hoy) {
+    const it = meds.items.find((m) => m.id === id);
+    if (it) it.tomado = tomado;
+  }
+  if (!Array.isArray(meds.pendientes)) meds.pendientes = [];
+  const f = fecha || hoy;
+  if (tomado) {
+    meds.pendientes = meds.pendientes.filter((p) => !(p.id === id && p.fecha === f));
+  } else if (f < hoy && !meds.pendientes.some((p) => p.id === id && p.fecha === f)) {
+    const src = meds.items.find((m) => m.id === id);
+    if (src && src.activo) {
+      meds.pendientes.push({
+        id, nombre: src.nombre, notas: src.notas, momento: src.momento, fecha: f,
+      });
+      meds.pendientes.sort((a, b) => (b.fecha.localeCompare(a.fecha)) || a.id.localeCompare(b.id));
+    }
+  }
+}
+function medToggle(id, tomado, fecha) {
+  const f = fecha || (meds && meds.hoy);
+  const key = medKey(id, f);
+  const p = medPending(); p[key] = tomado; LS.set('mb_med_pending', p);
+  medApplyLocal(id, f, tomado);
+  document.querySelectorAll(`[data-med-key="${CSS.escape(key)}"]`).forEach((n) => {
+    n.classList.toggle('done', tomado);
+    const tag = n.querySelector('.tag.warning');
+    if (tomado && tag && tag.textContent === 'pendiente') tag.remove();
+    else if (!tomado && !n.querySelector('.tag.warning')) {
+      n.append(el('span', { class: 'tag warning' }, 'pendiente'));
+    }
+  });
+  if (f && meds && f < meds.hoy) renderMeds();
   setSync('Guardando…');
   clearTimeout(medTimer); medTimer = setTimeout(flushMeds, DEBOUNCE_MS);
 }
@@ -292,26 +337,27 @@ async function flushMeds() {
   const changes = Object.entries(p);
   if (!changes.length) return;
   try {
-    for (const [id, tomado] of changes) {
+    for (const [key, tomado] of changes) {
+      const { id, fecha } = medParseKey(key);
+      const payload = { id, tomado };
+      if (fecha) payload.fecha = fecha;
       const r = await fetch('/api/med-dose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, tomado }),
+        body: JSON.stringify(payload),
         keepalive: true,
         credentials: 'same-origin',
       });
       if (r.status === 401) return showLogin();
       if (!r.ok) throw new Error(r.status);
       const now = medPending(), recent = LS.get('mb_med_recent', {});
-      if (now[id] === tomado) delete now[id];
-      recent[id] = { tomado, t: Date.now() };
+      if (now[key] === tomado) delete now[key];
+      recent[key] = { tomado, t: Date.now() };
       LS.set('mb_med_pending', now); LS.set('mb_med_recent', recent);
-      if (meds) {
-        const it = meds.items.find((m) => m.id === id);
-        if (it) it.tomado = tomado;
-      }
+      medApplyLocal(id, fecha, tomado);
     }
     setSync('Guardado');
+    renderMeds();
   } catch { setSync('Sin conexión: se guarda al volver'); }
 }
 function formatHoy(iso) {
@@ -320,14 +366,48 @@ function formatHoy(iso) {
   const dt = new Date(Date.UTC(y, m - 1, d, 12));
   return dt.toLocaleDateString('es-AR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
 }
+function formatMedFecha(iso, hoy) {
+  if (!iso) return '';
+  if (hoy && iso === hoy) return 'Hoy';
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  if (hoy) {
+    const [hy, hm, hd] = hoy.split('-').map(Number);
+    const diff = Math.round((Date.UTC(hy, hm - 1, hd, 12) - Date.UTC(y, m - 1, d, 12)) / 864e5);
+    if (diff === 1) return 'Ayer';
+  }
+  return dt.toLocaleDateString('es-AR', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
 function medHoyRow(it) {
   const tomado = medEffective(it);
-  return el('li', { class: tomado ? 'done' : '', 'data-med': it.id },
-    el('input', { type: 'checkbox', class: 'chk', checked: tomado, 'aria-label': 'Tomé: ' + it.nombre, onchange: (e) => medToggle(it.id, e.target.checked) }),
+  const key = medKey(it.id, meds && meds.hoy);
+  const tags = [];
+  if (!tomado) tags.push(el('span', { class: 'tag warning' }, 'pendiente'));
+  if (it.momento) tags.push(el('span', { class: 'tag' }, MOMENTO_LABEL[it.momento] || it.momento));
+  return el('li', { class: tomado ? 'done' : '', 'data-med': it.id, 'data-med-key': key },
+    el('input', { type: 'checkbox', class: 'chk', checked: tomado, 'aria-label': 'Tomé: ' + it.nombre, onchange: (e) => medToggle(it.id, e.target.checked, meds && meds.hoy) }),
     el('div', { class: 'body' },
       el('div', { class: 't' }, it.nombre),
       it.notas ? el('div', { class: 'd' }, it.notas) : null),
-    it.momento ? el('span', { class: 'tag' }, MOMENTO_LABEL[it.momento] || it.momento) : null);
+    ...tags);
+}
+function medPendRow(it) {
+  const tomado = medEffective(it, it.fecha);
+  const key = medKey(it.id, it.fecha);
+  const tags = [
+    el('span', { class: 'tag warning' }, 'pendiente'),
+  ];
+  if (it.momento) tags.push(el('span', { class: 'tag' }, MOMENTO_LABEL[it.momento] || it.momento));
+  return el('li', { class: tomado ? 'done' : '', 'data-med-key': key },
+    el('input', {
+      type: 'checkbox', class: 'chk', checked: tomado,
+      'aria-label': `Tomé (${formatMedFecha(it.fecha, meds && meds.hoy)}): ${it.nombre}`,
+      onchange: (e) => medToggle(it.id, e.target.checked, it.fecha),
+    }),
+    el('div', { class: 'body' },
+      el('div', { class: 't' }, it.nombre),
+      el('div', { class: 'd' }, formatMedFecha(it.fecha, meds && meds.hoy) + (it.notas ? ` · ${it.notas}` : ''))),
+    ...tags);
 }
 function clearMedEdit() {
   const form = $('#addMed');
@@ -378,7 +458,18 @@ function medCatalogRow(it) {
 }
 function renderMeds() {
   if (!meds) return;
+  if (!Array.isArray(meds.pendientes)) meds.pendientes = [];
   $('#medHoy').textContent = `Hoy · ${formatHoy(meds.hoy)} (${meds.tz || 'America/Argentina/Buenos_Aires'})`;
+  const pastPend = meds.pendientes.filter((p) => p.fecha && meds.hoy && p.fecha < meds.hoy && !medEffective(p, p.fecha));
+  const wrap = $('#medPendWrap');
+  const pendUl = $('#medPendList');
+  if (pastPend.length) {
+    wrap.hidden = false;
+    pendUl.replaceChildren(...pastPend.map(medPendRow));
+  } else {
+    wrap.hidden = true;
+    pendUl.replaceChildren();
+  }
   const activos = meds.items.filter((m) => m.activo);
   const ul = $('#medHoyList');
   ul.replaceChildren(...activos.map(medHoyRow));
@@ -428,9 +519,22 @@ async function deleteMed(id, nombre) {
     });
     if (r.status === 401) return showLogin();
     if (!r.ok) throw new Error(r.status);
-    if (meds) meds.items = meds.items.filter((m) => m.id !== id);
-    const p = medPending(); delete p[id]; LS.set('mb_med_pending', p);
-    const recent = LS.get('mb_med_recent', {}); delete recent[id]; LS.set('mb_med_recent', recent);
+    if (meds) {
+      meds.items = meds.items.filter((m) => m.id !== id);
+      if (Array.isArray(meds.pendientes)) {
+        meds.pendientes = meds.pendientes.filter((p) => p.id !== id);
+      }
+    }
+    const p = medPending();
+    for (const k of Object.keys(p)) {
+      if (k === id || k.startsWith(id + '@')) delete p[k];
+    }
+    LS.set('mb_med_pending', p);
+    const recent = LS.get('mb_med_recent', {});
+    for (const k of Object.keys(recent)) {
+      if (k === id || k.startsWith(id + '@')) delete recent[k];
+    }
+    LS.set('mb_med_recent', recent);
     if (($('#mEditId')?.value || '').trim() === id) clearMedEdit();
     renderMeds();
     setSync('Borrado');
@@ -477,7 +581,7 @@ $('#addMed').addEventListener('submit', async (e) => {
     if (r.status === 401) return showLogin();
     if (!r.ok) throw new Error(r.status);
     const it = await r.json();
-    if (!meds) meds = { hoy: '', tz: 'America/Argentina/Buenos_Aires', items: [] };
+    if (!meds) meds = { hoy: '', tz: 'America/Argentina/Buenos_Aires', items: [], pendientes: [] };
     meds.items.push(it);
     meds.items.sort((a, b) => (a.orden - b.orden) || a.id.localeCompare(b.id));
     clearMedEdit();

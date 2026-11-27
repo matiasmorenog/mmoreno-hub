@@ -30,7 +30,7 @@ This repository is the source. Pushing it does not change that deployment. Brief
 | `seen` | Dedup keys (`clave`, type, company key, date, detail). |
 | `rutina_estado` | Named timestamps for routines. |
 | `medications` | Catalog of meds/supplements: `nombre`, optional `notas`, optional free-text `momento` (tag/time; legacy `manana`/`mediodia`/`noche` still shown as labels), `activo`, `orden`. |
-| `medication_doses` | Per-day taken flag (`medication_id`, `fecha`, `tomado`, `tomado_en`). Primary key is idempotent for one dose row per med per calendar day. |
+| `medication_doses` | Per-day taken flag (`medication_id`, `fecha`, `tomado`, `tomado_en`). Primary key is idempotent for one dose row per med per calendar day. Missed doses (no `tomado` row) over the last 14 Buenos Aires calendar days surface as `pendientes` on `GET /api/meds`. |
 | `shopping_items` | Shopping list rows: `nombre`, optional `cantidad` / `notas`, `comprado`, `comprado_en`, `orden`. |
 | `accounts` | Expense accounts: MP wallet/card, Santander caja/Visa/Amex. |
 | `categories` | Expense categories (comida, transporte, …). |
@@ -71,7 +71,7 @@ cd site
 npx vercel dev
 ```
 
-Open the local URL. The **Brief** tab loads `GET /api/brief`. Under **Necesita tu atención**, the form posts to `POST /api/item` (creates an `items` row with `seccion = 'atencion'`). Checking an item posts a batch to `POST /api/toggle`. The **Medicación** tab loads `GET /api/meds` (catalog + today’s doses); checkboxes post to `POST /api/med-dose`; catalog create/update/delete use `POST` / `PATCH` / `DELETE /api/meds` (hard delete; dose rows cascade). The **Compras** tab loads `GET /api/shopping`; add/check/delete/clear-bought use `POST` / `PATCH` / `DELETE` / `POST` on `/api/shopping`. The **Gastos** tab uses `GET /api/gastos` (movimientos / resumen / reglas) and `POST /api/gastos-import` (preview → confirm; base64 upload, file-hash dedupe, fingerprint upsert). Parser unit tests: `node --test site/api/_lib/gastos/test-parsers.mjs` (synthetic fixtures only). The **Tracker** tab loads `GET /api/tracker` on demand.
+Open the local URL. The **Brief** tab loads `GET /api/brief`. Under **Necesita tu atención**, the form posts to `POST /api/item` (creates an `items` row with `seccion = 'atencion'`). Checking an item posts a batch to `POST /api/toggle`. The **Medicación** tab loads `GET /api/meds` (catalog + today’s doses + missed `pendientes` for the last 14 BA days); today’s unchecked rows show a `pendiente` tag; past misses list under **Pendientes** and can be checked off via `POST /api/med-dose` with optional `fecha`; catalog create/update/delete use `POST` / `PATCH` / `DELETE /api/meds` (hard delete; dose rows cascade). The **Compras** tab loads `GET /api/shopping`; add/check/delete/clear-bought use `POST` / `PATCH` / `DELETE` / `POST` on `/api/shopping`. The **Gastos** tab uses `GET /api/gastos` (movimientos / resumen / reglas) and `POST /api/gastos-import` (preview → confirm; base64 upload, file-hash dedupe, fingerprint upsert). Parser unit tests: `node --test site/api/_lib/gastos/test-parsers.mjs` (synthetic fixtures only). The **Tracker** tab loads `GET /api/tracker` on demand.
 
 Apply the schema yourself against the database you own, for example:
 
