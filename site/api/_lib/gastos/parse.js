@@ -2,6 +2,7 @@ import { detectMpAccountStatement, parseMpAccountStatement } from './mp-account.
 import { detectSantanderCajaXlsx, parseSantanderCajaXlsx } from './santander-caja.js';
 import {
   detectSantanderCardKind,
+  detectSantanderCuentaResumen,
   parseSantanderAmexPdf,
   parseSantanderVisaPdf,
 } from './santander-card.js';
@@ -20,6 +21,11 @@ const ACCOUNT_BY_FORMAT = {
 
 export function accountForFormat(fmt) {
   return ACCOUNT_BY_FORMAT[fmt] || null;
+}
+
+function withRules(parsed, rules) {
+  parsed.txs = applyRules(parsed.txs, rules);
+  return parsed;
 }
 
 /**
@@ -42,8 +48,7 @@ export async function parseExpenseFile(buf, opts = {}) {
     const parsed = parseMpAccountStatement(asText, {
       account_id: opts.account_id || 'mp_wallet',
     });
-    parsed.txs = applyRules(parsed.txs, opts.rules);
-    return { file_hash, filename, ...parsed, warnings: [...warnings, ...parsed.warnings] };
+    return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
   }
 
   // XLSX
@@ -54,45 +59,62 @@ export async function parseExpenseFile(buf, opts = {}) {
     const parsed = parseSantanderCajaXlsx(buf, {
       account_id: opts.account_id || 'santander_caja',
     });
-    parsed.txs = applyRules(parsed.txs, opts.rules);
-    return { file_hash, filename, ...parsed, warnings: [...warnings, ...parsed.warnings] };
+    return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
   }
 
-  // PDF
+  // PDF — Santander card BEFORE MP card (MP detector used to false-positive on Visa/Amex).
   if (lower.endsWith('.pdf') || buf.slice(0, 5).toString() === '%PDF-') {
     const text = await pdfToText(buf);
-    if (detectMpCardPdf(text)) {
+
+    // Cuenta resumen PDF is secondary — primary caja source is XLSX.
+    if (
+      /cuenta-resumen|resumen-cuenta/i.test(filename) ||
+      (detectSantanderCuentaResumen(text) && opts.account_id !== 'santander_visa' && opts.account_id !== 'santander_amex')
+    ) {
+      throw Object.assign(
+        new Error('santander_cuenta_resumen_use_xlsx'),
+        { code: 'santander_cuenta_resumen_use_xlsx' },
+      );
+    }
+
+    const kindFromName = /amex/i.test(filename)
+      ? 'santander_amex'
+      : /visa/i.test(filename)
+        ? 'santander_visa'
+        : null;
+    const kind = opts.account_id === 'santander_amex' || opts.account_id === 'santander_visa'
+      ? opts.account_id
+      : kindFromName || detectSantanderCardKind(text);
+
+    if (kind === 'santander_amex') {
+      const parsed = await parseSantanderAmexPdf(buf);
+      parsed.account_id = opts.account_id || parsed.account_id;
+      parsed.txs = parsed.txs.map((t) => ({ ...t, account_id: parsed.account_id }));
+      return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
+    }
+    if (kind === 'santander_visa') {
+      const parsed = await parseSantanderVisaPdf(buf);
+      parsed.account_id = opts.account_id || parsed.account_id;
+      parsed.txs = parsed.txs.map((t) => ({ ...t, account_id: parsed.account_id }));
+      return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
+    }
+
+    if (detectMpCardPdf(text) || opts.account_id === 'mp_card' || /mp-tarjeta|mercadopago.*tarjeta/i.test(filename)) {
+      const ym = filename.match(/(20\d{2})-(\d{2})/);
+      const yearHint = ym ? Number(ym[1]) : undefined;
       const parsed = await parseMpCardPdf(buf, {
         account_id: opts.account_id || 'mp_card',
+        yearHint,
+        monthHint: ym ? Number(ym[2]) : undefined,
       });
-      parsed.txs = applyRules(parsed.txs, opts.rules);
-      return { file_hash, filename, ...parsed, warnings: [...warnings, ...parsed.warnings] };
+      return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
     }
-    const kind = opts.account_id || detectSantanderCardKind(text);
-    if (kind === 'santander_amex' || /amex/i.test(filename)) {
-      const parsed = await parseSantanderAmexPdf(buf);
-      if (opts.account_id) parsed.account_id = opts.account_id;
-      parsed.txs = applyRules(
-        parsed.txs.map((t) => ({ ...t, account_id: parsed.account_id })),
-        opts.rules,
-      );
-      return { file_hash, filename, ...parsed, warnings: [...warnings, ...parsed.warnings] };
-    }
-    if (kind === 'santander_visa' || /visa/i.test(filename)) {
-      const parsed = await parseSantanderVisaPdf(buf);
-      if (opts.account_id) parsed.account_id = opts.account_id;
-      parsed.txs = applyRules(
-        parsed.txs.map((t) => ({ ...t, account_id: parsed.account_id })),
-        opts.rules,
-      );
-      return { file_hash, filename, ...parsed, warnings: [...warnings, ...parsed.warnings] };
-    }
-    // fallback: try amex then visa heuristics
+
     if (/Merpago\*/i.test(text)) {
       const parsed = await parseSantanderAmexPdf(buf);
-      parsed.txs = applyRules(parsed.txs, opts.rules);
-      return { file_hash, filename, ...parsed, warnings: [...warnings, ...parsed.warnings] };
+      return { file_hash, filename, ...withRules(parsed, opts.rules), warnings: [...warnings, ...parsed.warnings] };
     }
+
     throw Object.assign(new Error('unsupported_pdf'), { code: 'unsupported_pdf' });
   }
 

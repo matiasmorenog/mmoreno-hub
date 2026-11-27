@@ -6,8 +6,11 @@ import test from 'node:test';
 import XLSX from 'xlsx';
 import { parseMpAccountStatement } from './mp-account.js';
 import { parseSantanderCajaXlsx } from './santander-caja.js';
-import { parseSantanderCardText } from './santander-card.js';
-import { parseMpCardText } from './mp-card.js';
+import {
+  detectSantanderCardKind,
+  parseSantanderCardText,
+} from './santander-card.js';
+import { detectMpCardPdf, parseMpCardText } from './mp-card.js';
 import { applyRules } from './rules.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -66,10 +69,13 @@ test('santander amex merpago double-count guard', () => {
   assert.equal(cafe.is_excluded, false);
 });
 
-test('mp card print-pdf text pairs merchant+kind', () => {
+test('mp card print-pdf emits one tx per kind pair, skips summary totals', () => {
   const text = fs.readFileSync(path.join(fixtures, 'mp-card-sample.txt'), 'utf8');
+  assert.equal(detectMpCardPdf(text), true);
   const parsed = parseMpCardText(text, { yearHint: 2026 });
-  assert.ok(parsed.txs.length >= 3);
+  // 4 kind-backed rows; the naked "Saldo $ 999.999,00" must NOT become a tx
+  assert.equal(parsed.txs.length, 4);
+  assert.ok(!parsed.txs.some((t) => Math.abs(t.amount) === 999999));
   assert.ok(parsed.warnings.includes('mp_card_print_pdf_fragile'));
   const refund = parsed.txs.find((t) => /Reembolso/i.test(t.tx_type));
   assert.ok(refund);
@@ -78,7 +84,39 @@ test('mp card print-pdf text pairs merchant+kind', () => {
   assert.ok(usd);
 });
 
-test('applyRules category pattern', () => {
+test('santander card text is not detected as mp card', () => {
+  const text = fs.readFileSync(path.join(fixtures, 'santander-card-sample.txt'), 'utf8');
+  assert.equal(detectMpCardPdf(text), false);
+  assert.equal(detectSantanderCardKind(text), 'santander_amex');
+});
+
+test('per-row rules: different merchants get different categories; Consumo rule does not paint all', () => {
+  const text = fs.readFileSync(path.join(fixtures, 'mp-card-sample.txt'), 'utf8');
+  const parsed = parseMpCardText(text, { yearHint: 2026 });
+  assert.ok(parsed.txs.length >= 3);
+
+  const ruled = applyRules(parsed.txs, [
+    // Broad trap: used to match every row via tx_type "consumo"
+    { id: 'trap-consumo', pattern: 'Consumo', category_id: 'comida', account_id: null, priority: 50, exclude_expense: false, activo: true },
+    { id: 'ypf', pattern: 'YPF', category_id: 'transporte', account_id: null, priority: 10, exclude_expense: false, activo: true },
+    { id: 'cafe', pattern: 'Cafe', category_id: 'comida', account_id: null, priority: 10, exclude_expense: false, activo: true },
+    { id: 'cloud', pattern: 'Cloud', category_id: 'suscripciones', account_id: null, priority: 10, exclude_expense: false, activo: true },
+  ]);
+
+  const byMerchant = Object.fromEntries(ruled.map((t) => [t.merchant, t.category_id]));
+  assert.equal(byMerchant['Cafe Demo'], 'comida');
+  assert.equal(byMerchant['YPF Demo'], 'transporte');
+  assert.equal(byMerchant['Cloud Demo'], 'suscripciones');
+  // Refund Demo: no merchant rule; "Consumo" must NOT match via tx_type/descripcion prefix alone
+  const refund = ruled.find((t) => /Refund Demo/i.test(t.merchant));
+  assert.ok(refund);
+  assert.equal(refund.category_id, null);
+
+  const cats = new Set(ruled.map((t) => t.category_id).filter(Boolean));
+  assert.ok(cats.size >= 3, 'expected multiple distinct categories in one statement');
+});
+
+test('applyRules category pattern on wallet row', () => {
   const txs = [
     {
       account_id: 'mp_wallet',

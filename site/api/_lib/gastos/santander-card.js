@@ -3,8 +3,10 @@ import { fingerprint } from './fingerprint.js';
 import { pdfToText } from './pdf-text.js';
 
 const DATE_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(.*))?$/;
-const AMT_RE = /(?:U\$S|US\$|\$)\s*([\d.]+,\d{2}|[\d]+,\d{2}|\d+(?:\.\d{3})*,\d{2})$/;
+const AMT_RE = /(?:U\$S|US\$|\$)\s*(-?[\d.]+,\d{2})$/;
 const COMPROBANTE_RE = /\b(\d{6,})\b/;
+const SKIP_LINE =
+  /TOTAL|Plan V:|TNA:|TEA:|CUIT:|RESUMEN|Su pago|pago m[ií]nimo|Saldo anterior|Saldo actual|Limite|Fecha de venc|En pesos|En d[oó]lares|^--\s*\d+\s+of/i;
 
 function toIsoDate(dd, mm, yy) {
   let year = Number(yy);
@@ -18,16 +20,21 @@ function extractAmount(line) {
   const currency = /U\$S|US\$/i.test(line) ? 'USD' : 'ARS';
   const amount = parseArAmount(m[1]);
   if (amount == null) return null;
-  // Card statements: charges positive in file; we store spend as negative for expenses consistency with MP wallet
-  // Keep statement sign as printed (usually positive charges). Caller can treat >0 as spend for cards.
   return { amount, currency, raw: m[0] };
 }
 
+function cleanDesc(raw) {
+  return String(raw || '')
+    .replace(AMT_RE, '')
+    .replace(COMPROBANTE_RE, '')
+    .replace(/\b\d{1,3}\/\d{1,3}\b/g, '') // cuota markers like 01/03
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 /**
- * Parse Santander Visa/Amex resumen PDF text into transactions.
- * Lines often look like:
- *   DD/MM/YY Merchant [cuota] [comprobante] $ 1.234,56
- * or split across lines (merchant / comprobante / amount).
+ * Parse Santander Visa/Amex resumen PDF text into ONE transaction per movement.
+ * Skips header/summary amounts; never collapses a whole statement into one row.
  */
 export function parseSantanderCardText(text, { account_id, source_format }) {
   const lines = String(text)
@@ -39,8 +46,10 @@ export function parseSantanderCardText(text, { account_id, source_format }) {
   let sumArs = 0;
   let sumUsd = 0;
 
-  // Skip until detalle-ish section if present
-  let start = lines.findIndex((l) => /Cuota|consumos|Detalle|en el pa[ií]s|en el exterior/i.test(l));
+  // Prefer detalle de consumos section when present.
+  let start = lines.findIndex((l) =>
+    /Detalle|Cuota.*Pesos|consumos en el|Movimientos|Fecha\s+Descripci/i.test(l),
+  );
   if (start < 0) start = 0;
 
   let pending = null;
@@ -49,11 +58,14 @@ export function parseSantanderCardText(text, { account_id, source_format }) {
       pending = null;
       return;
     }
-    const desc = pending.descripcion || pending.merchant || '';
+    const desc = cleanDesc(pending.descripcion || pending.merchant || '');
+    // Skip empty / pure-total rows
+    if (!desc || /^(pesos|dolares|u\$s|usd|ars)$/i.test(desc)) {
+      pending = null;
+      return;
+    }
     const isMerpago = /merpago/i.test(desc);
-    const amount = pending.currency === 'USD' ? pending.amount : pending.amount;
-    // Card charges: store as negative spend in ARS/USD field for unified resumen (expense = abs of negatives + card positives flipped)
-    const signed = -Math.abs(amount);
+    const signed = -Math.abs(pending.amount);
     const fp = fingerprint([
       account_id,
       pending.fecha,
@@ -67,7 +79,7 @@ export function parseSantanderCardText(text, { account_id, source_format }) {
       fingerprint: fp,
       fecha: pending.fecha,
       descripcion: desc,
-      merchant: pending.merchant || desc,
+      merchant: desc,
       tx_type: 'consumo_tarjeta',
       amount: signed,
       currency: pending.currency,
@@ -87,8 +99,7 @@ export function parseSantanderCardText(text, { account_id, source_format }) {
 
   for (let i = start; i < lines.length; i++) {
     const line = lines[i];
-    if (/^--\s*\d+\s+of\s+\d+\s*--$/i.test(line)) continue;
-    if (/TOTAL|Plan V:|TNA:|TEA:|CUIT:|RESUMEN/i.test(line) && !DATE_RE.test(line)) {
+    if (SKIP_LINE.test(line) && !DATE_RE.test(line)) {
       flushPending();
       continue;
     }
@@ -98,65 +109,90 @@ export function parseSantanderCardText(text, { account_id, source_format }) {
       flushPending();
       const fecha = toIsoDate(dm[1], dm[2], dm[3]);
       const rest = (dm[4] || '').trim();
+      // Bare date with no merchant text — often calendar/header; wait for continuation.
       const amt = extractAmount(rest);
       const comp = (rest.match(COMPROBANTE_RE) || [])[1] || null;
-      let desc = rest;
-      if (amt) desc = rest.slice(0, rest.lastIndexOf(amt.raw)).trim();
-      if (comp) desc = desc.replace(comp, '').trim();
-      desc = desc.replace(/\s+/g, ' ').trim();
+      let desc = cleanDesc(rest);
       pending = {
         fecha,
         descripcion: desc,
-        merchant: desc.split(/\s+/)[0] ? desc : null,
+        merchant: desc || null,
         comprobante: comp,
         cuota: null,
         amount: amt?.amount ?? null,
         currency: amt?.currency ?? 'ARS',
       };
-      if (amt) flushPending();
+      // Only flush if we have both merchant text and amount on this line.
+      if (amt && desc) flushPending();
+      else if (amt && !desc) {
+        // Amount-only dated line = likely summary payment — drop.
+        pending = null;
+      }
       continue;
     }
 
     if (pending && pending.amount == null) {
       const amt = extractAmount(line);
       if (amt) {
+        // If pending still has no merchant, try previous bare date + this amount only if line has text.
+        const extra = cleanDesc(line);
+        if (extra) {
+          pending.descripcion = `${pending.descripcion || ''} ${extra}`.trim();
+          pending.merchant = pending.descripcion;
+        }
+        if (!pending.descripcion) {
+          pending = null;
+          continue;
+        }
         pending.amount = amt.amount;
         pending.currency = amt.currency;
         flushPending();
         continue;
       }
-      // continuation: merchant / comprobante line
       const comp = (line.match(COMPROBANTE_RE) || [])[1];
       if (comp && !pending.comprobante) pending.comprobante = comp;
-      if (!/^\d+$/.test(line) && !amt) {
-        const extra = line.replace(COMPROBANTE_RE, '').trim();
-        if (extra) {
-          pending.descripcion = `${pending.descripcion || ''} ${extra}`.trim();
-          pending.merchant = pending.descripcion;
-        }
+      const extra = cleanDesc(line);
+      if (extra) {
+        pending.descripcion = `${pending.descripcion || ''} ${extra}`.trim();
+        pending.merchant = pending.descripcion;
       }
       continue;
     }
 
-    // Continuation lines that look like Merpago* without date (same day as previous)
+    // Merpago* continuation without date (same day as previous movement).
     if (/merpago/i.test(line) && !pending) {
       const last = txs[txs.length - 1];
       const amt = extractAmount(line);
-      if (last && amt) {
-        pending = {
-          fecha: last.fecha,
-          descripcion: line.replace(AMT_RE, '').replace(COMPROBANTE_RE, '').trim(),
-          merchant: line.split(/\s+/)[0],
-          comprobante: (line.match(COMPROBANTE_RE) || [])[1] || null,
-          cuota: null,
-          amount: amt.amount,
-          currency: amt.currency,
-        };
-        flushPending();
+      const desc = cleanDesc(line);
+      if (last && (amt || desc)) {
+        if (amt && desc) {
+          pending = {
+            fecha: last.fecha,
+            descripcion: desc,
+            merchant: desc,
+            comprobante: (line.match(COMPROBANTE_RE) || [])[1] || null,
+            cuota: null,
+            amount: amt.amount,
+            currency: amt.currency,
+          };
+          flushPending();
+        } else if (!amt && desc) {
+          pending = {
+            fecha: last.fecha,
+            descripcion: desc,
+            merchant: desc,
+            comprobante: (line.match(COMPROBANTE_RE) || [])[1] || null,
+            cuota: null,
+            amount: null,
+            currency: 'ARS',
+          };
+        }
       }
     }
   }
   flushPending();
+
+  if (txs.length < 1) warnings.push('santander_card_no_rows');
 
   return {
     account_id,
@@ -190,7 +226,19 @@ export async function parseSantanderAmexPdf(buf) {
 
 export function detectSantanderCardKind(text) {
   const t = String(text || '');
-  if (/American Express|Amex/i.test(t) || /Merpago\*/i.test(t)) return 'santander_amex';
-  if (/Visa/i.test(t)) return 'santander_visa';
+  // Bank cuenta resumen is NOT a card statement.
+  if (/resumen de cuenta|Caja de Ahorro|Cuenta única/i.test(t) && !/Visa\s*N|American Express/i.test(t)) {
+    return null;
+  }
+  if (/American Express|\bAmex\b/i.test(t) || /Merpago\*/i.test(t)) return 'santander_amex';
+  if (/Visa\s*N|\bVisa\b/i.test(t)) return 'santander_visa';
   return null;
+}
+
+export function detectSantanderCuentaResumen(text) {
+  const t = String(text || '');
+  const looksCuenta =
+    /resumen de cuenta|Caja de Ahorro|Cuenta única|Transferencia\s+(CVU|a\b)|Debin|acreditaci/i.test(t);
+  const looksCardHeader = /Visa\s*N[°ºo]|American Express\s*N/i.test(t);
+  return looksCuenta && !looksCardHeader;
 }
