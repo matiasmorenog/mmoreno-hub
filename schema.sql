@@ -279,5 +279,20 @@ INSERT INTO category_rules (id, pattern, category_id, account_id, priority, excl
   ('seed-impuesto-sellos', 'Impuesto de sellos', 'impuestos', NULL, 15, false, true),
   ('seed-iva-digital', 'IVA servicios digitales', 'impuestos', NULL, 15, false, true),
   ('seed-iibb-digital', 'IIBB servicios digitales', 'impuestos', NULL, 15, false, true),
-  ('seed-saldo-anterior', 'Saldo anterior', 'otros', NULL, 12, true, true)
+  ('seed-saldo-anterior', 'Saldo anterior', 'otros', NULL, 12, true, true),
+  -- Catch-all MP passenger payouts. Priority 180: learned friend rules (prio 40) and
+  -- default form rules (100) always win. Own-account Moreno rules (10) also win first.
+  ('mp-transferencia-recibida-uber', 'Transferencia recibida', 'ingresos-uber-didi', 'mp_wallet', 180, false, true)
 ON CONFLICT (id) DO NOTHING;
+
+-- Ensure catch-all exists / stays low-priority on DBs that already had seeds.
+INSERT INTO category_rules (id, pattern, category_id, account_id, priority, exclude_expense, activo)
+VALUES ('mp-transferencia-recibida-uber', 'Transferencia recibida', 'ingresos-uber-didi', 'mp_wallet', 180, false, true)
+ON CONFLICT (id) DO UPDATE SET
+  pattern = EXCLUDED.pattern,
+  category_id = EXCLUDED.category_id,
+  account_id = EXCLUDED.account_id,
+  priority = EXCLUDED.priority,
+  exclude_expense = EXCLUDED.exclude_expense,
+  activo = true,
+  actualizado = now();

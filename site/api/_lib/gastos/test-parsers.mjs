@@ -317,3 +317,47 @@ test('applyRules category pattern on wallet row', () => {
   ]);
   assert.equal(out[0].category_id, 'transporte');
 });
+
+test('Transferencia recibida catch-all is weak; friend learned rule wins', () => {
+  const catchAll = {
+    id: 'mp-transferencia-recibida-uber',
+    pattern: 'Transferencia recibida',
+    category_id: CAT_UBER_DIDI,
+    account_id: 'mp_wallet',
+    priority: 180,
+    exclude_expense: false,
+    activo: true,
+  };
+  const friend = {
+    id: 'learned_friend',
+    pattern: 'Amigo Demo',
+    category_id: 'transferencias',
+    account_id: 'mp_wallet',
+    priority: 40,
+    exclude_expense: false,
+    activo: true,
+  };
+  const base = {
+    account_id: 'mp_wallet',
+    merchant: 'Amigo Demo',
+    descripcion: 'Transferencia recibida Amigo Demo',
+    tx_type: 'transferencia_recibida',
+    hora_local: 14,
+    category_id: null,
+    category_source: null,
+    is_excluded: false,
+    is_internal_transfer: false,
+    double_count_guard: false,
+  };
+
+  const byCatch = applyRules([base], [catchAll])[0];
+  assert.equal(byCatch.category_id, CAT_UBER_DIDI);
+  assert.equal(byCatch.category_source, CAT_SRC_RULE);
+
+  const byFriend = applyRules([base], [catchAll, friend])[0];
+  assert.equal(byFriend.category_id, 'transferencias');
+  assert.equal(byFriend.category_source, CAT_SRC_RULE);
+
+  const otherAcct = applyRules([{ ...base, account_id: 'santander_caja' }], [catchAll])[0];
+  assert.equal(otherAcct.category_id, null);
+});
