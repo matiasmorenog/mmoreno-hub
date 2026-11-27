@@ -150,7 +150,7 @@
         <input id="rPattern" type="text" placeholder="ej. YPF, Spotify, CEAMSE" required maxlength="200" autocomplete="off">
         <label class="muted small" for="rCategory">→ categoría</label>
         <select id="rCategory"><option value="">Elegir categoría</option></select>
-        <select id="rAccount" aria-label="Solo en esta cuenta (opcional)"><option value="">Todas las cuentas</option></select>
+        <select id="rAccount" aria-label="Cuenta (vacío = todas)"><option value="" selected>Todas las cuentas</option></select>
         <label class="muted small"><input type="checkbox" id="rExclude"> No contar como gasto</label>
         <button type="submit" id="rSubmit">Agregar</button>
         <button type="button" id="rCancelEdit" class="ghost" hidden>Cancelar</button>

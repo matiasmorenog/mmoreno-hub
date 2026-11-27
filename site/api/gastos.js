@@ -290,28 +290,28 @@ export default async function handler(req, res) {
     if (learn && hasCat && category_id) {
       const pattern = normalizeRulePattern(learnPatternFromTx(tx) || '');
       if (pattern && pattern.length >= 3) {
-        const ruleId = learnedRuleId(tx.account_id, pattern);
+        // Learned rules apply to all accounts (account_id null), same as UI default.
+        const ruleId = learnedRuleId(null, pattern);
         const ruleRows = await sql`
           INSERT INTO category_rules (id, pattern, category_id, account_id, priority, exclude_expense, activo)
-          VALUES (${ruleId}, ${pattern}, ${category_id}, ${tx.account_id}, 40, false, true)
+          VALUES (${ruleId}, ${pattern}, ${category_id}, NULL, 40, false, true)
           ON CONFLICT (id) DO UPDATE SET
             pattern = EXCLUDED.pattern,
             category_id = EXCLUDED.category_id,
-            account_id = EXCLUDED.account_id,
+            account_id = NULL,
             actualizado = now(),
             activo = true
           RETURNING id, pattern, category_id, account_id, priority, exclude_expense, activo`;
         learned = ruleRows[0] || null;
         // Apply to uncategorized OR hourly-auto matches — never overwrite other manual/rule.
-        // ILIKE is case-insensitive (Moreno ≡ MORENO).
+        // ILIKE is case-insensitive (Moreno ≡ MORENO). All accounts.
         const like = `%${pattern}%`;
         const prop = await sql`
           UPDATE transactions SET
             category_id = ${category_id},
             category_source = ${CAT_SRC_RULE},
             actualizado = now()
-          WHERE account_id = ${tx.account_id}
-            AND id <> ${tx.id}
+          WHERE id <> ${tx.id}
             AND (
               category_id IS NULL
               OR category_source = 'hourly'
@@ -333,8 +333,10 @@ export default async function handler(req, res) {
     if (b.entity === 'rule') {
       const pattern = normalizeRulePattern(typeof b.pattern === 'string' ? b.pattern : '');
       if (!pattern) return res.status(400).json({ error: 'pattern' });
-      const category_id = typeof b.category_id === 'string' ? b.category_id : null;
-      const account_id = typeof b.account_id === 'string' ? b.account_id : null;
+      const category_id = typeof b.category_id === 'string' && b.category_id ? b.category_id : null;
+      // Empty / missing → all accounts (null). Never invent a default account.
+      const account_id =
+        typeof b.account_id === 'string' && b.account_id.trim() ? b.account_id.trim() : null;
       const priority =
         typeof b.priority === 'number' && Number.isFinite(b.priority) ? Math.trunc(b.priority) : 100;
       const exclude_expense = !!b.exclude_expense;

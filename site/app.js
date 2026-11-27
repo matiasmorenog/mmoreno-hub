@@ -589,9 +589,9 @@ function fillAccountSelects() {
   for (const sel of [$('#gResCuenta'), $('#rAccount')]) {
     if (!sel) continue;
     const cur = sel.value;
-    const first = sel.options[0];
-    sel.replaceChildren(first || el('option', { value: '' }, 'Todas las cuentas'));
+    sel.replaceChildren(el('option', { value: '' }, 'Todas las cuentas'));
     for (const a of gastos.accounts) sel.append(el('option', { value: a.id }, a.nombre));
+    // Prefer current selection; for rAccount fall back to all accounts ('').
     sel.value = [...sel.options].some((o) => o.value === cur) ? cur : '';
   }
   const catSel = $('#rCategory');
@@ -971,6 +971,7 @@ function clearReglaEdit() {
   if (!form) return;
   form.reset();
   if ($('#rEditId')) $('#rEditId').value = '';
+  if ($('#rAccount')) $('#rAccount').value = ''; // default: todas las cuentas
   if ($('#rSubmit')) $('#rSubmit').textContent = 'Agregar';
   if ($('#rCancelEdit')) $('#rCancelEdit').hidden = true;
 }
@@ -1171,11 +1172,12 @@ $('#addRegla').addEventListener('submit', async (e) => {
   const btn = $('#rSubmit') || e.target.querySelector('button[type=submit]');
   btn.disabled = true;
   try {
+    const acctVal = ($('#rAccount')?.value || '').trim();
     const payload = {
       entity: 'rule',
       pattern,
       category_id: $('#rCategory').value || null,
-      account_id: $('#rAccount').value || null,
+      account_id: acctVal || null, // null = todas las cuentas
       exclude_expense: $('#rExclude').checked,
     };
     if (editId) {
