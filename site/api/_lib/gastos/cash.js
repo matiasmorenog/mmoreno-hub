@@ -8,6 +8,29 @@ export function clampDayOfMonth(day) {
   return Math.min(28, Math.max(1, n));
 }
 
+/**
+ * Normalize PG date / Date / ISO string → YYYY-MM-DD.
+ * Neon returns JS Date for `date` columns (UTC midnight); never use String(date).slice(0,10).
+ */
+export function toDateISO(value) {
+  if (value == null || value === '') return null;
+  if (typeof value === 'string') {
+    const m = value.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? m[1] : null;
+  }
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value.toISOString().slice(0, 10);
+  }
+  // Neon sometimes returns date-like objects with toISOString
+  if (typeof value?.toISOString === 'function') {
+    try {
+      return value.toISOString().slice(0, 10);
+    } catch { /* fall through */ }
+  }
+  const m = String(value).match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : null;
+}
+
 /** YYYY-MM-DD in America/Argentina/Buenos_Aires. */
 export function todayISO(now = new Date()) {
   return new Intl.DateTimeFormat('en-CA', {
@@ -24,7 +47,8 @@ export function todayISO(now = new Date()) {
  * @param {number} dayOfMonth
  */
 export function addOneMonth(isoDate, dayOfMonth) {
-  const m = String(isoDate).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const iso = toDateISO(isoDate);
+  const m = iso && iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) throw new Error('bad_date');
   let y = Number(m[1]);
   let mo = Number(m[2]) + 1;
@@ -43,7 +67,8 @@ export function addOneMonth(isoDate, dayOfMonth) {
  */
 export function defaultNextDue(dayOfMonth, today = todayISO()) {
   const day = clampDayOfMonth(dayOfMonth);
-  const m = String(today).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const todayIso = toDateISO(today) || todayISO();
+  const m = todayIso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) throw new Error('bad_today');
   const y = Number(m[1]);
   const mo = Number(m[2]);
@@ -66,17 +91,19 @@ export async function materializeDueCash(sql, {
   if (typeof fingerprint !== 'function' || typeof newId !== 'function') {
     throw new Error('fingerprint_newId_required');
   }
+  const todayIso = toDateISO(today) || todayISO();
   const due = await sql`
     SELECT id, nombre, amount, currency, category_id, notes, day_of_month, next_due, account_id
     FROM cash_recurring
-    WHERE activo = true AND next_due <= ${today}
+    WHERE activo = true AND next_due <= ${todayIso}::date
     ORDER BY next_due ASC, id ASC`;
 
   let created = 0;
   let advanced = 0;
 
   for (const r of due) {
-    let next = String(r.next_due).slice(0, 10);
+    let next = toDateISO(r.next_due);
+    if (!next) continue;
     const day = clampDayOfMonth(r.day_of_month);
     const accountId = r.account_id || CASH_ACCOUNT_ID;
     // Expense amounts stored negative (UI enters positive).
@@ -87,11 +114,13 @@ export async function materializeDueCash(sql, {
     const currency = r.currency === 'USD' ? 'USD' : 'ARS';
     const amount_ars = currency === 'ARS' ? amount : null;
     const amount_usd = currency === 'USD' ? amount : null;
+    let loops = 0;
 
-    while (next <= today) {
+    while (next <= todayIso) {
       const fp = fingerprint(['cash_rec', r.id, next]);
       const id = newId('cash');
       const notes = typeof r.notes === 'string' && r.notes.trim() ? r.notes.trim().slice(0, 2000) : null;
+      const raw = JSON.stringify({ cash_recurring_id: r.id, next_due_at_create: next });
       const rows = await sql`
         INSERT INTO transactions (
           id, account_id, import_id, fingerprint, fecha, posted_at, hora_local,
@@ -103,7 +132,7 @@ export async function materializeDueCash(sql, {
           ${accountId},
           NULL,
           ${fp},
-          ${next},
+          ${next}::date,
           NULL,
           NULL,
           ${r.nombre},
@@ -119,20 +148,21 @@ export async function materializeDueCash(sql, {
           false,
           false,
           ${notes},
-          ${JSON.stringify({ cash_recurring_id: r.id, next_due_at_create: next })}::jsonb
+          ${raw}::jsonb
         )
         ON CONFLICT (account_id, fingerprint) DO NOTHING
         RETURNING id`;
       if (rows.length) created += 1;
       next = addOneMonth(next, day);
       advanced += 1;
+      loops += 1;
       // Safety: never infinite-loop on bad dates
-      if (advanced > 120) break;
+      if (loops > 36) break;
     }
 
     await sql`
       UPDATE cash_recurring
-      SET next_due = ${next}, actualizado = now()
+      SET next_due = ${next}::date, actualizado = now()
       WHERE id = ${r.id}`;
   }
 

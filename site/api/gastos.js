@@ -14,6 +14,7 @@ import {
   defaultNextDue,
   materializeDueCash,
   todayISO,
+  toDateISO,
 } from './_lib/gastos/cash.js';
 
 function slugId(prefix, nombre) {
@@ -215,8 +216,15 @@ export default async function handler(req, res) {
     }
 
     if (view === 'efectivo') {
-      const matured = await materializeDueCash(sql, { fingerprint, newId });
-      const [recurring, cash_txs] = await Promise.all([
+      let matured = { created: 0, advanced: 0 };
+      try {
+        matured = await materializeDueCash(sql, { fingerprint, newId });
+      } catch (err) {
+        // Never block the fijos list on materialize failure.
+        console.error('cash_materialize_failed', err?.message || err);
+        matured = { created: 0, advanced: 0, error: String(err?.message || err) };
+      }
+      const [recurringRows, cashTxRows] = await Promise.all([
         sql`
           SELECT r.id, r.nombre, r.amount, r.currency, r.category_id, r.notes,
                  r.day_of_month, r.next_due, r.activo, r.account_id, r.creado, r.actualizado,
@@ -233,6 +241,15 @@ export default async function handler(req, res) {
           ORDER BY t.fecha DESC, t.id DESC
           LIMIT 80`,
       ]);
+      // Normalize date fields so UI never sees Date→locale string junk.
+      const recurring = recurringRows.map((r) => ({
+        ...r,
+        next_due: toDateISO(r.next_due) || r.next_due,
+      }));
+      const cash_txs = cashTxRows.map((t) => ({
+        ...t,
+        fecha: toDateISO(t.fecha) || t.fecha,
+      }));
       return res.status(200).json({
         accounts,
         categories,

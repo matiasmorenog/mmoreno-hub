@@ -1451,7 +1451,7 @@ function renderGastosCashRec() {
         el('div', { class: 't' }, r.nombre),
         el('div', { class: 'd' },
           `${moneyFmt(Math.abs(Number(r.amount)), r.currency)} · día ${r.day_of_month}` +
-          ` · próximo ${String(r.next_due).slice(0, 10)}` +
+          ` · próximo ${(String(r.next_due || '').match(/\d{4}-\d{2}-\d{2}/) || ['—'])[0]}` +
           (r.category_nombre ? ` · ${r.category_nombre}` : '') +
           (paused ? ' · pausado' : '')),
         r.notes ? el('div', { class: 'id' }, r.notes) : null),

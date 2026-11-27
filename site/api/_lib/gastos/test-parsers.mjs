@@ -40,6 +40,7 @@ import {
   addOneMonth,
   clampDayOfMonth,
   defaultNextDue,
+  toDateISO,
 } from './cash.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -472,4 +473,9 @@ test('cash monthly next_due helpers', () => {
   assert.equal(defaultNextDue(5, '2026-11-10'), '2026-12-05');
   // Today == day → due today
   assert.equal(defaultNextDue(10, '2026-11-10'), '2026-11-10');
+  // Neon Date / ISO must not become locale "Fri Nov 27"
+  assert.equal(toDateISO(new Date('2026-11-27T00:00:00.000Z')), '2026-11-27');
+  assert.equal(toDateISO('2026-11-27T00:00:00.000Z'), '2026-11-27');
+  assert.equal(toDateISO('2026-12-05'), '2026-12-05');
+  assert.notEqual(String(new Date('2026-11-27T00:00:00.000Z')).slice(0, 10), '2026-11-27');
 });
