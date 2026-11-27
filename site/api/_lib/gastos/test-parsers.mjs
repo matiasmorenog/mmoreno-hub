@@ -32,6 +32,9 @@ import {
   buildMerchantHistoryMap,
   rulePatternKey,
   normalizeRulePattern,
+  parseNamePartsPattern,
+  namePartsMatch,
+  ruleMatchesHaystack,
 } from './rules.js';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
@@ -350,6 +353,61 @@ test('rule patterns match case-insensitively (Moreno ≡ MORENO)', () => {
   assert.equal(out.category_id, 'transferencias');
   assert.equal(out.is_excluded, true);
   assert.equal(out.is_internal_transfer, true);
+});
+
+test('nameparts: ≥2 tokens any order; friend full-name beats own nameparts', () => {
+  const parts = parseNamePartsPattern('nameparts:2:matias adrian moreno gallo');
+  assert.equal(parts.min, 2);
+  assert.ok(namePartsMatch('transferencia enviada moreno matias adrian', parts));
+  assert.ok(namePartsMatch('de matias adrian moreno gall/ mercadopago', parts));
+  assert.equal(namePartsMatch('nieves alicia gallo', parts), false);
+  assert.ok(ruleMatchesHaystack('nameparts:2:matias adrian moreno gallo', 'moreno matias'));
+
+  const own = {
+    id: 'own-nameparts-matias',
+    pattern: 'nameparts:2:matias adrian moreno gallo',
+    category_id: 'transferencias',
+    account_id: null,
+    priority: 45,
+    exclude_expense: true,
+    activo: true,
+  };
+  const friend = {
+    id: 'learned_macarena',
+    pattern: 'MacArena Belen Moreno Gallo',
+    category_id: 'conocidos',
+    account_id: null,
+    priority: 40,
+    exclude_expense: false,
+    activo: true,
+  };
+  const macarena = applyRules([{
+    account_id: 'mp_wallet',
+    merchant: 'MacArena Belen Moreno Gallo',
+    descripcion: 'Transferencia enviada MacArena Belen Moreno Gallo',
+    tx_type: 'transferencia_enviada',
+    category_id: null,
+    category_source: null,
+    is_excluded: false,
+    is_internal_transfer: false,
+    double_count_guard: false,
+  }], [own, friend])[0];
+  assert.equal(macarena.category_id, 'conocidos');
+  assert.equal(macarena.is_excluded, false);
+
+  const self = applyRules([{
+    account_id: 'mp_wallet',
+    merchant: 'Moreno Matias Adrian',
+    descripcion: 'Transferencia enviada Moreno Matias Adrian',
+    tx_type: 'transferencia_enviada',
+    category_id: null,
+    category_source: null,
+    is_excluded: false,
+    is_internal_transfer: false,
+    double_count_guard: false,
+  }], [own, friend])[0];
+  assert.equal(self.category_id, 'transferencias');
+  assert.equal(self.is_excluded, true);
 });
 
 test('Transferencia recibida catch-all is weak; friend learned rule wins', () => {

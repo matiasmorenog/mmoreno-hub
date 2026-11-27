@@ -117,3 +117,10 @@ details p{margin-top:8px!important;color:var(--mu);font-size:14px}
 .ghost.tiny{font:inherit;font-size:12px;padding:2px 8px;border:0;background:transparent;color:var(--mu);cursor:pointer;text-decoration:underline}
 .ghost.tiny:hover{color:var(--tx)}
 #rFilter,#gFiltroTexto{flex:1;min-width:180px;max-width:320px}
+#gastosMov .th-sort{
+  font:inherit;font-weight:600;border:0;background:transparent;color:inherit;
+  padding:0;cursor:pointer;text-align:left;
+}
+#gastosMov .th-sort:hover{color:var(--ac)}
+#gastosMov .th-sort.on::after{content:attr(data-dir);margin-left:4px;color:var(--mu);font-weight:400}
+#rMatchType{max-width:200px}

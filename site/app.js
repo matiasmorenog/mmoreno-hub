@@ -14,6 +14,9 @@ let gastosAcctSelected = null;
 let gastosMovSearchTimer = null;
 /** Expanded Reglas category-group keys (persist across re-render). */
 const gastosRuleGroupsOpen = new Set();
+/** Last loaded movimientos rows (client sort). */
+let gastosMovRows = [];
+let gastosMovSort = { key: 'fecha', dir: 'desc' };
 
 function formatGastosHora(t) {
   if (t == null) return '—';
@@ -840,17 +843,61 @@ async function loadGastosMov() {
   const data = await r.json();
   gastos = { ...gastos, ...data };
   fillAccountSelects();
-  $('#gMovCount').textContent = `${(data.transactions || []).length} filas`;
-  const cats = data.categories || [];
+  gastosMovRows = data.transactions || [];
+  $('#gMovCount').textContent = `${gastosMovRows.length} filas`;
+  renderGastosMovTable();
+  setSync('');
+}
+
+function movSortValue(t, key) {
+  switch (key) {
+    case 'fecha': return String(t.fecha || '');
+    case 'hora': {
+      if (typeof t.hora_local === 'number') return t.hora_local;
+      if (t.posted_at) return new Date(t.posted_at).getTime();
+      return -1;
+    }
+    case 'cuenta': return String(t.account_nombre || t.account_id || '').toLowerCase();
+    case 'desc': return String(t.descripcion || t.merchant || '').toLowerCase();
+    case 'monto': return Number(t.amount) || 0;
+    case 'categoria': return String(catNombre(t.category_id) || '').toLowerCase();
+    default: return '';
+  }
+}
+
+function sortedGastosMovRows() {
+  const { key, dir } = gastosMovSort;
+  const mul = dir === 'asc' ? 1 : -1;
+  return gastosMovRows.slice().sort((a, b) => {
+    const va = movSortValue(a, key);
+    const vb = movSortValue(b, key);
+    if (va < vb) return -1 * mul;
+    if (va > vb) return 1 * mul;
+    return String(a.id).localeCompare(String(b.id)) * mul;
+  });
+}
+
+function updateMovSortHeaders() {
+  for (const btn of document.querySelectorAll('#gastosMov .th-sort')) {
+    const on = btn.dataset.sort === gastosMovSort.key;
+    btn.classList.toggle('on', on);
+    if (on) btn.dataset.dir = gastosMovSort.dir === 'asc' ? '↑' : '↓';
+    else btn.removeAttribute('data-dir');
+  }
+}
+
+function renderGastosMovTable() {
   const tb = $('#gastosMov tbody');
-  tb.replaceChildren(...(data.transactions || []).map((t) => {
+  if (!tb) return;
+  updateMovSortHeaders();
+  const cats = gastos?.categories || [];
+  tb.replaceChildren(...sortedGastosMovRows().map((t) => {
     const sel = el('select', {
       onchange: async (e) => {
         const category_id = e.target.value || null;
         let learn = false;
         if (category_id) {
           const label = String(t.merchant || t.descripcion || 'este movimiento').trim().slice(0, 80);
-          // OK = regla siempre; Cancel = solo este movimiento (útil en transferencias a personas)
           learn = confirm(`¿Aplicar siempre a «${label}»?\n\nAceptar = crear regla para futuros iguales.\nCancelar = solo este movimiento.`);
         }
         setSync('Guardando…');
@@ -900,8 +947,8 @@ async function loadGastosMov() {
         },
       }, t.is_excluded ? 'Incluir' : 'Excluir')));
   }));
-  setSync('');
 }
+
 for (const id of ['#gFiltroCategoria', '#gFiltroFlow', '#gFiltroMes', '#gIncluirExcluidos']) {
   $(id)?.addEventListener('change', () => { if (gastosSub === 'movimientos') loadGastosMov(); });
 }
@@ -914,6 +961,18 @@ $('#gFiltroTexto')?.addEventListener('search', () => {
   if (gastosSub !== 'movimientos') return;
   clearTimeout(gastosMovSearchTimer);
   loadGastosMov();
+});
+$('#gastosMov')?.addEventListener('click', (e) => {
+  const btn = e.target.closest?.('.th-sort');
+  if (!btn || !$('#gastosMov').contains(btn)) return;
+  const key = btn.dataset.sort;
+  if (!key) return;
+  if (gastosMovSort.key === key) {
+    gastosMovSort.dir = gastosMovSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    gastosMovSort = { key, dir: key === 'fecha' || key === 'monto' || key === 'hora' ? 'desc' : 'asc' };
+  }
+  renderGastosMovTable();
 });
 
 function catNombre(id) {
@@ -962,12 +1021,25 @@ function renderGastosCats() {
     if (!cats.length) ul.append(el('li', { class: 'muted' }, 'Todavía no hay categorías.'));
   });
 }
+function parseUiNamePartsPattern(pattern) {
+  const m = /^nameparts:(?:(\d+):)?(.+)$/i.exec(String(pattern || '').trim());
+  if (!m) return null;
+  return { min: m[1] ? parseInt(m[1], 10) || 2 : 2, tokens: m[2].trim() };
+}
+
+function rulePatternLabel(pattern) {
+  const np = parseUiNamePartsPattern(pattern);
+  if (np) return `partes≥${np.min}: ${np.tokens}`;
+  return pattern || '';
+}
+
 function clearReglaEdit() {
   const form = $('#addRegla');
   if (!form) return;
   form.reset();
   if ($('#rEditId')) $('#rEditId').value = '';
   if ($('#rAccount')) $('#rAccount').value = ''; // default: todas las cuentas
+  if ($('#rMatchType')) $('#rMatchType').value = 'contains';
   if ($('#rSubmit')) $('#rSubmit').textContent = 'Agregar';
   if ($('#rCancelEdit')) $('#rCancelEdit').hidden = true;
 }
@@ -975,7 +1047,9 @@ function clearReglaEdit() {
 function startReglaEdit(r) {
   if (!r) return;
   if ($('#rEditId')) $('#rEditId').value = r.id;
-  if ($('#rPattern')) $('#rPattern').value = r.pattern || '';
+  const np = parseUiNamePartsPattern(r.pattern);
+  if ($('#rMatchType')) $('#rMatchType').value = np ? 'nameparts' : 'contains';
+  if ($('#rPattern')) $('#rPattern').value = np ? np.tokens : (r.pattern || '');
   if ($('#rCategory')) $('#rCategory').value = r.category_id || '';
   if ($('#rAccount')) $('#rAccount').value = r.account_id || '';
   if ($('#rExclude')) $('#rExclude').checked = !!r.exclude_expense;
@@ -1068,7 +1142,7 @@ function renderGastosRules() {
 
     ul.replaceChildren(...groups.map((g) => {
       const open = gastosRuleGroupsOpen.has(g.key);
-      const preview = g.rules.slice(0, 6).map((r) => r.pattern).filter(Boolean);
+      const preview = g.rules.slice(0, 6).map((r) => rulePatternLabel(r.pattern)).filter(Boolean);
       const more = g.rules.length > preview.length ? ` +${g.rules.length - preview.length}` : '';
       const head = el('button', {
         type: 'button',
@@ -1101,7 +1175,7 @@ function renderGastosRules() {
             if (acct) bits.push(`solo ${acct}`);
             if (r.exclude_expense) bits.push('excluir gasto');
             return el('div', { class: 'rule-tag-row' },
-              el('span', { class: 'rule-tag', title: r.pattern }, r.pattern),
+              el('span', { class: 'rule-tag', title: r.pattern }, rulePatternLabel(r.pattern)),
               bits.length ? el('span', { class: 'rule-tag-meta muted small' }, bits.join(' · ')) : null,
               el('div', { class: 'row-actions' },
                 iconBtn({
@@ -1161,8 +1235,19 @@ $('#addCategoria')?.addEventListener('submit', async (e) => {
 });
 $('#addRegla').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const pattern = $('#rPattern').value.trim();
+  let pattern = $('#rPattern').value.trim();
   if (!pattern) return;
+  const matchType = $('#rMatchType')?.value || 'contains';
+  if (matchType === 'nameparts') {
+    if (!/^nameparts:/i.test(pattern)) {
+      const tokens = pattern.replace(/^nameparts:(?:\d+:)?/i, '').trim();
+      if (tokens.split(/\s+/).filter(Boolean).length < 2) {
+        setSync('Partes de nombre: poné al menos 2 palabras');
+        return;
+      }
+      pattern = `nameparts:2:${tokens}`;
+    }
+  }
   const editId = ($('#rEditId')?.value || '').trim();
   const existing = editId ? (gastos?.rules || []).find((x) => x.id === editId) : null;
   const btn = $('#rSubmit') || e.target.querySelector('button[type=submit]');
@@ -1175,7 +1260,9 @@ $('#addRegla').addEventListener('submit', async (e) => {
       category_id: $('#rCategory').value || null,
       account_id: acctVal || null, // null = todas las cuentas
       exclude_expense: $('#rExclude').checked,
+      priority: matchType === 'nameparts' && !editId ? 45 : undefined,
     };
+    if (payload.priority === undefined) delete payload.priority;
     if (editId) {
       payload.id = editId;
       if (existing && typeof existing.priority === 'number') payload.priority = existing.priority;

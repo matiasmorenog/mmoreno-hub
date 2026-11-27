@@ -127,7 +127,15 @@
         <span id="gMovCount" class="muted"></span>
       </div>
       <div class="tablewrap"><table class="tbl" id="gastosMov">
-        <thead><tr><th>Fecha</th><th>Hora</th><th>Cuenta</th><th>Descripción</th><th>Monto</th><th>Categoría</th><th></th></tr></thead>
+        <thead><tr>
+          <th><button type="button" class="th-sort" data-sort="fecha">Fecha</button></th>
+          <th><button type="button" class="th-sort" data-sort="hora">Hora</button></th>
+          <th><button type="button" class="th-sort" data-sort="cuenta">Cuenta</button></th>
+          <th><button type="button" class="th-sort" data-sort="desc">Descripción</button></th>
+          <th><button type="button" class="th-sort" data-sort="monto">Monto</button></th>
+          <th><button type="button" class="th-sort" data-sort="categoria">Categoría</button></th>
+          <th></th>
+        </tr></thead>
         <tbody></tbody>
       </table></div>
     </div>
@@ -145,8 +153,13 @@
       <p class="muted small">Agrupadas por categoría. Expandí un grupo para ver los nombres/tags que matchean (ej. amigos → Transferencias). También se crean solas cuando categorizás a mano.</p>
       <form id="addRegla" class="add-row reglas-form">
         <input type="hidden" id="rEditId" value="">
+        <label class="muted small" for="rMatchType">Tipo</label>
+        <select id="rMatchType" aria-label="Tipo de coincidencia">
+          <option value="contains">Contiene texto</option>
+          <option value="nameparts">Partes de nombre (≥2)</option>
+        </select>
         <label class="muted small" for="rPattern">Si el texto contiene</label>
-        <input id="rPattern" type="text" placeholder="ej. YPF, Spotify, CEAMSE" required maxlength="200" autocomplete="off">
+        <input id="rPattern" type="text" placeholder="ej. YPF, Spotify — o matias adrian moreno gallo" required maxlength="200" autocomplete="off">
         <label class="muted small" for="rCategory">→ categoría</label>
         <select id="rCategory"><option value="">Elegir categoría</option></select>
         <select id="rAccount" aria-label="Cuenta (vacío = todas)"><option value="" selected>Todas las cuentas</option></select>

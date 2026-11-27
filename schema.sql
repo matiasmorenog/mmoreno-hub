@@ -253,8 +253,9 @@ ON CONFLICT (id) DO NOTHING;
 -- DLOCAL = DiDi/Uber driver income on MP wallet. Peajes = Amex Merpago* toll operators.
 -- Rendimientos = MP remunerated-account interest.
 INSERT INTO category_rules (id, pattern, category_id, account_id, priority, exclude_expense, activo) VALUES
-  -- Matching is case-insensitive («Moreno Matias» ≡ «MORENO MATIAS»); keep one rule only.
-  ('own-mp-moreno-matias', 'Moreno Matias', 'transferencias', 'mp_wallet', 10, true, true),
+  -- Name-parts (≥2 of matias/adrian/moreno/gallo, any order). Prio 45: learned friend
+  -- full-name rules (40) win for family (e.g. MacArena Moreno Gallo).
+  ('own-nameparts-matias', 'nameparts:2:matias adrian moreno gallo', 'transferencias', NULL, 45, true, true),
   ('guard-amex-merpago', 'Merpago', NULL, 'santander_amex', 5, true, true),
   ('mp-dlocal-uber-didi', 'DLOCAL', 'ingresos-uber-didi', 'mp_wallet', 8, false, true),
   ('mp-rendimientos', 'Rendimientos', 'rendimientos', 'mp_wallet', 9, false, true),
@@ -280,8 +281,7 @@ INSERT INTO category_rules (id, pattern, category_id, account_id, priority, excl
   ('seed-iva-digital', 'IVA servicios digitales', 'impuestos', NULL, 15, false, true),
   ('seed-iibb-digital', 'IIBB servicios digitales', 'impuestos', NULL, 15, false, true),
   ('seed-saldo-anterior', 'Saldo anterior', 'otros', NULL, 12, true, true),
-  -- Catch-all MP passenger payouts. Priority 180: learned friend rules (prio 40) and
-  -- default form rules (100) always win. Own-account Moreno rules (10) also win first.
+  -- Catch-all MP passenger payouts. Priority 180: learned friend rules (prio 40) win first.
   ('mp-transferencia-recibida-uber', 'Transferencia recibida', 'ingresos-uber-didi', 'mp_wallet', 180, false, true)
 ON CONFLICT (id) DO NOTHING;
 
@@ -297,5 +297,27 @@ ON CONFLICT (id) DO UPDATE SET
   activo = true,
   actualizado = now();
 
--- Drop legacy case-duplicate own-transfer rule (matcher is case-insensitive).
-DELETE FROM category_rules WHERE id = 'own-mp-moreno-upper';
+-- Drop legacy own-name substring rules (replaced by nameparts).
+DELETE FROM category_rules WHERE id IN (
+  'own-mp-moreno-upper',
+  'own-mp-moreno-matias',
+  'rule_matias-adrian-moreno'
+);
+
+INSERT INTO category_rules (id, pattern, category_id, account_id, priority, exclude_expense, activo)
+VALUES (
+  'own-nameparts-matias',
+  'nameparts:2:matias adrian moreno gallo',
+  'transferencias',
+  NULL,
+  45,
+  true,
+  true
+)
+ON CONFLICT (id) DO UPDATE SET
+  pattern = EXCLUDED.pattern,
+  account_id = NULL,
+  priority = EXCLUDED.priority,
+  exclude_expense = true,
+  activo = true,
+  actualizado = now();

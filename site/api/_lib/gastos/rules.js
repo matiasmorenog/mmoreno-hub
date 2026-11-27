@@ -24,6 +24,53 @@ export function rulePatternKey(s) {
   return normalizeRulePattern(s).toLowerCase();
 }
 
+/**
+ * Name-parts patterns: `nameparts:2:matias adrian moreno gallo` (min defaults to 2).
+ * Matches when ≥min distinct tokens appear as whole words (any order, case-insensitive).
+ */
+export function parseNamePartsPattern(pattern) {
+  const raw = normalizeRulePattern(pattern);
+  const m = /^nameparts:(?:(\d+):)?(.+)$/i.exec(raw);
+  if (!m) return null;
+  const min = m[1] ? Math.max(1, parseInt(m[1], 10) || 2) : 2;
+  const tokens = [...new Set(
+    m[2]
+      .toLowerCase()
+      .split(/\s+/)
+      .map((t) => t.replace(/[^\p{L}\p{N}]/gu, ''))
+      .filter((t) => t.length >= 2),
+  )];
+  if (tokens.length < min) return null;
+  return { min, tokens };
+}
+
+/** True if haystack contains ≥min name-part tokens (whole words; allows bank truncations). */
+export function namePartsMatch(haystack, parts) {
+  if (!parts?.tokens?.length) return false;
+  const hay = String(haystack || '').toLowerCase();
+  const words = hay.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  let hits = 0;
+  for (const t of parts.tokens) {
+    let ok = false;
+    for (const w of words) {
+      if (w === t || (w.length >= 3 && t.startsWith(w)) || (t.length >= 3 && w.startsWith(t))) {
+        ok = true;
+        break;
+      }
+    }
+    if (ok) hits += 1;
+  }
+  return hits >= parts.min;
+}
+
+export function ruleMatchesHaystack(pattern, haystack) {
+  const parts = parseNamePartsPattern(pattern);
+  if (parts) return namePartsMatch(haystack, parts);
+  const pat = rulePatternKey(pattern);
+  if (pat.length < 3) return false;
+  return String(haystack || '').includes(pat);
+}
+
 /** Normalize text used for rule matching / learning. */
 export function matchHaystack(tx) {
   const desc = String(tx.descripcion || '')
@@ -98,10 +145,12 @@ export function applyBuiltins(tx) {
   const out = { ...tx };
   const hay = matchHaystack(out);
 
+  // Builtin own-name fallback: ≥2 name tokens AND at least matias|adrian (avoids family surnames).
   if (
     out.account_id === 'mp_wallet' &&
     /transferencia/i.test(out.tx_type || '') &&
-    /moreno\s+matias/i.test(hay)
+    namePartsMatch(hay, { min: 2, tokens: ['matias', 'adrian', 'moreno', 'gallo'] }) &&
+    namePartsMatch(hay, { min: 1, tokens: ['matias', 'adrian'] })
   ) {
     out.is_internal_transfer = true;
     out.is_excluded = true;
@@ -198,16 +247,16 @@ export function applyRules(txs, rules, opts = {}) {
 
     for (const rule of active) {
       if (rule.account_id && rule.account_id !== out.account_id) continue;
+      if (!ruleMatchesHaystack(rule.pattern, hay)) continue;
       const pat = rulePatternKey(rule.pattern);
-      if (pat.length < 3) continue;
-      if (!hay.includes(pat)) continue;
+      const parts = parseNamePartsPattern(rule.pattern);
 
       if (rule.exclude_expense) {
         out.is_excluded = true;
         if (/merpago/i.test(pat)) {
           out.double_count_guard = true;
           out.is_internal_transfer = false;
-        } else if (/moreno|propia|own/i.test(pat)) {
+        } else if (parts || /moreno|matias|propia|own|nameparts/i.test(pat)) {
           out.is_internal_transfer = true;
         }
       }
