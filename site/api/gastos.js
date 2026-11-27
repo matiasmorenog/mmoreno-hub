@@ -137,7 +137,14 @@ async function fetchTxs(sql, f = {}) {
     ? sql`AND t.account_id IN ${accountIds}`
     : sql``;
   const monthFilter = month ? sql`AND to_char(t.fecha, 'YYYY-MM') = ${month}` : sql``;
-  const excludedFilter = includeExcluded || spendableOnly ? sql`` : sql`AND NOT t.is_excluded`;
+  // Default Movimientos hide the same “excluded” set Resumen uses:
+  // is_excluded, internal transfers, and own-account categories.
+  const excludedFilter = includeExcluded || spendableOnly
+    ? sql``
+    : sql`AND NOT t.is_excluded
+          AND NOT t.is_internal_transfer
+          AND (t.category_id IS NULL
+            OR (t.category_id <> ${CAT_OWN_TRANSFER} AND t.category_id <> ${CAT_OWN_MOV}))`;
   const spendableFilter = spendableOnly
     ? sql`AND NOT t.is_excluded
           AND NOT t.is_internal_transfer
