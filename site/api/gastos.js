@@ -32,64 +32,71 @@ function learnedRuleId(accountId, pattern) {
   return `learned_${slug}_${h}`.slice(0, 100);
 }
 
-/** Own-account / internal moves — never spend or income in Resumen. */
-const OWN_ACCOUNT_CATEGORY_IDS = ['transferencias', 'cat_movimientos-cuenta-propia_f59c'];
+/**
+ * Own-account categories — never spend/income in Resumen.
+ * Avoid `NOT IN ${array}` (Neon serverless → syntax error near $1).
+ */
+const CAT_OWN_TRANSFER = 'transferencias';
+const CAT_OWN_MOV = 'cat_movimientos-cuenta-propia_f59c';
 
 async function fetchResumen(sql, account_id, month) {
   // spend/income: not excluded, not internal transfer, not “cuenta propia” categories
   const accountFilter = account_id ? sql`AND account_id = ${account_id}` : sql``;
   const monthFilter = month ? sql`AND to_char(fecha, 'YYYY-MM') = ${month}` : sql``;
-  const lim = !account_id && !month ? sql`LIMIT 48` : sql``;
-  return sql`
+  const rows = await sql`
     SELECT
       to_char(fecha, 'YYYY-MM') AS month,
       currency,
       COALESCE(SUM(CASE
         WHEN NOT is_excluded
           AND NOT is_internal_transfer
-          AND (category_id IS NULL OR category_id NOT IN ${OWN_ACCOUNT_CATEGORY_IDS})
+          AND (category_id IS NULL
+            OR (category_id <> ${CAT_OWN_TRANSFER} AND category_id <> ${CAT_OWN_MOV}))
           AND amount < 0
         THEN amount ELSE 0 END), 0) AS spend,
       COALESCE(SUM(CASE
         WHEN NOT is_excluded
           AND NOT is_internal_transfer
-          AND (category_id IS NULL OR category_id NOT IN ${OWN_ACCOUNT_CATEGORY_IDS})
+          AND (category_id IS NULL
+            OR (category_id <> ${CAT_OWN_TRANSFER} AND category_id <> ${CAT_OWN_MOV}))
           AND amount > 0
         THEN amount ELSE 0 END), 0) AS income,
       COALESCE(SUM(CASE WHEN is_excluded OR is_internal_transfer
-        OR category_id IN ${OWN_ACCOUNT_CATEGORY_IDS}
+        OR category_id = ${CAT_OWN_TRANSFER}
+        OR category_id = ${CAT_OWN_MOV}
         THEN amount ELSE 0 END), 0) AS excluded,
       COALESCE(SUM(CASE WHEN double_count_guard THEN amount ELSE 0 END), 0) AS guarded_merpago,
       COUNT(*) FILTER (
         WHERE NOT is_excluded
           AND NOT is_internal_transfer
-          AND (category_id IS NULL OR category_id NOT IN ${OWN_ACCOUNT_CATEGORY_IDS})
+          AND (category_id IS NULL
+            OR (category_id <> ${CAT_OWN_TRANSFER} AND category_id <> ${CAT_OWN_MOV}))
       )::int AS n
     FROM transactions
     WHERE true
       ${accountFilter}
       ${monthFilter}
-    GROUP BY 1, 2 ORDER BY 1 DESC, 2
-    ${lim}`;
+    GROUP BY 1, 2 ORDER BY 1 DESC, 2`;
+  return !account_id && !month ? rows.slice(0, 48) : rows;
 }
 
 async function fetchByCategory(sql, account_id, month) {
   const accountFilter = account_id ? sql`AND t.account_id = ${account_id}` : sql``;
   const monthFilter = month ? sql`AND to_char(t.fecha, 'YYYY-MM') = ${month}` : sql``;
-  const lim = !month ? sql`LIMIT 40` : sql``;
-  return sql`
+  const rows = await sql`
     SELECT t.category_id, COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
       COALESCE(SUM(t.amount), 0) AS total, COUNT(*)::int AS n
     FROM transactions t
     LEFT JOIN categories c ON c.id = t.category_id
     WHERE NOT t.is_excluded
       AND NOT t.is_internal_transfer
-      AND (t.category_id IS NULL OR t.category_id NOT IN ${OWN_ACCOUNT_CATEGORY_IDS})
+      AND (t.category_id IS NULL
+        OR (t.category_id <> ${CAT_OWN_TRANSFER} AND t.category_id <> ${CAT_OWN_MOV}))
       ${accountFilter}
       ${monthFilter}
     GROUP BY t.category_id, c.nombre, t.currency
-    ORDER BY total ASC
-    ${lim}`;
+    ORDER BY total ASC`;
+  return !month ? rows.slice(0, 40) : rows;
 }
 
 /**
@@ -125,7 +132,8 @@ async function fetchTxs(sql, f = {}) {
   const spendableFilter = spendableOnly
     ? sql`AND NOT t.is_excluded
           AND NOT t.is_internal_transfer
-          AND (t.category_id IS NULL OR t.category_id NOT IN ${OWN_ACCOUNT_CATEGORY_IDS})`
+          AND (t.category_id IS NULL
+            OR (t.category_id <> ${CAT_OWN_TRANSFER} AND t.category_id <> ${CAT_OWN_MOV}))`
     : sql``;
   const hourFilter = hourAutoOnly ? sql`AND t.category_source = 'hourly'` : sql``;
   const uncatFilter = uncategorizedOnly ? sql`AND t.category_id IS NULL` : sql``;
