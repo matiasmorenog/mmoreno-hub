@@ -32,107 +32,64 @@ function learnedRuleId(accountId, pattern) {
   return `learned_${slug}_${h}`.slice(0, 100);
 }
 
+/** Own-account / internal moves — never spend or income in Resumen. */
+const OWN_ACCOUNT_CATEGORY_IDS = ['transferencias', 'cat_movimientos-cuenta-propia_f59c'];
+
 async function fetchResumen(sql, account_id, month) {
-  if (account_id && month) {
-    return sql`
-      SELECT
-        to_char(fecha, 'YYYY-MM') AS month,
-        currency,
-        COALESCE(SUM(CASE WHEN NOT is_excluded AND amount < 0 THEN amount ELSE 0 END), 0) AS spend,
-        COALESCE(SUM(CASE WHEN NOT is_excluded AND amount > 0 THEN amount ELSE 0 END), 0) AS income,
-        COALESCE(SUM(CASE WHEN is_excluded THEN amount ELSE 0 END), 0) AS excluded,
-        COALESCE(SUM(CASE WHEN double_count_guard THEN amount ELSE 0 END), 0) AS guarded_merpago,
-        COUNT(*)::int AS n
-      FROM transactions
-      WHERE account_id = ${account_id} AND to_char(fecha, 'YYYY-MM') = ${month}
-      GROUP BY 1, 2 ORDER BY 1 DESC, 2`;
-  }
-  if (account_id) {
-    return sql`
-      SELECT
-        to_char(fecha, 'YYYY-MM') AS month,
-        currency,
-        COALESCE(SUM(CASE WHEN NOT is_excluded AND amount < 0 THEN amount ELSE 0 END), 0) AS spend,
-        COALESCE(SUM(CASE WHEN NOT is_excluded AND amount > 0 THEN amount ELSE 0 END), 0) AS income,
-        COALESCE(SUM(CASE WHEN is_excluded THEN amount ELSE 0 END), 0) AS excluded,
-        COALESCE(SUM(CASE WHEN double_count_guard THEN amount ELSE 0 END), 0) AS guarded_merpago,
-        COUNT(*)::int AS n
-      FROM transactions
-      WHERE account_id = ${account_id}
-      GROUP BY 1, 2 ORDER BY 1 DESC, 2`;
-  }
-  if (month) {
-    return sql`
-      SELECT
-        to_char(fecha, 'YYYY-MM') AS month,
-        currency,
-        COALESCE(SUM(CASE WHEN NOT is_excluded AND amount < 0 THEN amount ELSE 0 END), 0) AS spend,
-        COALESCE(SUM(CASE WHEN NOT is_excluded AND amount > 0 THEN amount ELSE 0 END), 0) AS income,
-        COALESCE(SUM(CASE WHEN is_excluded THEN amount ELSE 0 END), 0) AS excluded,
-        COALESCE(SUM(CASE WHEN double_count_guard THEN amount ELSE 0 END), 0) AS guarded_merpago,
-        COUNT(*)::int AS n
-      FROM transactions
-      WHERE to_char(fecha, 'YYYY-MM') = ${month}
-      GROUP BY 1, 2 ORDER BY 1 DESC, 2`;
-  }
+  // spend/income: not excluded, not internal transfer, not “cuenta propia” categories
+  const accountFilter = account_id ? sql`AND account_id = ${account_id}` : sql``;
+  const monthFilter = month ? sql`AND to_char(fecha, 'YYYY-MM') = ${month}` : sql``;
+  const lim = !account_id && !month ? sql`LIMIT 48` : sql``;
   return sql`
     SELECT
       to_char(fecha, 'YYYY-MM') AS month,
       currency,
-      COALESCE(SUM(CASE WHEN NOT is_excluded AND amount < 0 THEN amount ELSE 0 END), 0) AS spend,
-      COALESCE(SUM(CASE WHEN NOT is_excluded AND amount > 0 THEN amount ELSE 0 END), 0) AS income,
-      COALESCE(SUM(CASE WHEN is_excluded THEN amount ELSE 0 END), 0) AS excluded,
+      COALESCE(SUM(CASE
+        WHEN NOT is_excluded
+          AND NOT is_internal_transfer
+          AND (category_id IS NULL OR category_id NOT IN ${OWN_ACCOUNT_CATEGORY_IDS})
+          AND amount < 0
+        THEN amount ELSE 0 END), 0) AS spend,
+      COALESCE(SUM(CASE
+        WHEN NOT is_excluded
+          AND NOT is_internal_transfer
+          AND (category_id IS NULL OR category_id NOT IN ${OWN_ACCOUNT_CATEGORY_IDS})
+          AND amount > 0
+        THEN amount ELSE 0 END), 0) AS income,
+      COALESCE(SUM(CASE WHEN is_excluded OR is_internal_transfer
+        OR category_id IN ${OWN_ACCOUNT_CATEGORY_IDS}
+        THEN amount ELSE 0 END), 0) AS excluded,
       COALESCE(SUM(CASE WHEN double_count_guard THEN amount ELSE 0 END), 0) AS guarded_merpago,
-      COUNT(*)::int AS n
+      COUNT(*) FILTER (
+        WHERE NOT is_excluded
+          AND NOT is_internal_transfer
+          AND (category_id IS NULL OR category_id NOT IN ${OWN_ACCOUNT_CATEGORY_IDS})
+      )::int AS n
     FROM transactions
+    WHERE true
+      ${accountFilter}
+      ${monthFilter}
     GROUP BY 1, 2 ORDER BY 1 DESC, 2
-    LIMIT 48`;
+    ${lim}`;
 }
 
 async function fetchByCategory(sql, account_id, month) {
-  if (account_id && month) {
-    return sql`
-      SELECT t.category_id, COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
-        COALESCE(SUM(t.amount), 0) AS total, COUNT(*)::int AS n
-      FROM transactions t
-      LEFT JOIN categories c ON c.id = t.category_id
-      WHERE NOT t.is_excluded
-        AND t.account_id = ${account_id}
-        AND to_char(t.fecha, 'YYYY-MM') = ${month}
-      GROUP BY t.category_id, c.nombre, t.currency
-      ORDER BY total ASC`;
-  }
-  if (month) {
-    return sql`
-      SELECT t.category_id, COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
-        COALESCE(SUM(t.amount), 0) AS total, COUNT(*)::int AS n
-      FROM transactions t
-      LEFT JOIN categories c ON c.id = t.category_id
-      WHERE NOT t.is_excluded
-        AND to_char(t.fecha, 'YYYY-MM') = ${month}
-      GROUP BY t.category_id, c.nombre, t.currency
-      ORDER BY total ASC`;
-  }
-  if (account_id) {
-    return sql`
-      SELECT t.category_id, COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
-        COALESCE(SUM(t.amount), 0) AS total, COUNT(*)::int AS n
-      FROM transactions t
-      LEFT JOIN categories c ON c.id = t.category_id
-      WHERE NOT t.is_excluded AND t.account_id = ${account_id}
-      GROUP BY t.category_id, c.nombre, t.currency
-      ORDER BY total ASC
-      LIMIT 40`;
-  }
+  const accountFilter = account_id ? sql`AND t.account_id = ${account_id}` : sql``;
+  const monthFilter = month ? sql`AND to_char(t.fecha, 'YYYY-MM') = ${month}` : sql``;
+  const lim = !month ? sql`LIMIT 40` : sql``;
   return sql`
     SELECT t.category_id, COALESCE(c.nombre, 'Sin categoría') AS category, t.currency,
       COALESCE(SUM(t.amount), 0) AS total, COUNT(*)::int AS n
     FROM transactions t
     LEFT JOIN categories c ON c.id = t.category_id
     WHERE NOT t.is_excluded
+      AND NOT t.is_internal_transfer
+      AND (t.category_id IS NULL OR t.category_id NOT IN ${OWN_ACCOUNT_CATEGORY_IDS})
+      ${accountFilter}
+      ${monthFilter}
     GROUP BY t.category_id, c.nombre, t.currency
     ORDER BY total ASC
-    LIMIT 40`;
+    ${lim}`;
 }
 
 /**
@@ -145,6 +102,7 @@ async function fetchByCategory(sql, account_id, month) {
  *   categoryId?: string|null,
  *   flow?: 'ingresos'|'gastos'|null,
  *   q?: string|null,
+ *   spendableOnly?: boolean,
  * }} f
  */
 async function fetchTxs(sql, f = {}) {
@@ -155,6 +113,7 @@ async function fetchTxs(sql, f = {}) {
   const uncategorizedOnly = !!f.uncategorizedOnly;
   const categoryId = f.categoryId || null;
   const flow = f.flow === 'ingresos' || f.flow === 'gastos' ? f.flow : null;
+  const spendableOnly = !!f.spendableOnly;
   const qRaw = typeof f.q === 'string' ? f.q.trim().slice(0, 80) : '';
   const qClean = qRaw.replace(/[%_\\]/g, '').trim();
 
@@ -162,7 +121,12 @@ async function fetchTxs(sql, f = {}) {
     ? sql`AND t.account_id IN ${accountIds}`
     : sql``;
   const monthFilter = month ? sql`AND to_char(t.fecha, 'YYYY-MM') = ${month}` : sql``;
-  const excludedFilter = includeExcluded ? sql`` : sql`AND NOT t.is_excluded`;
+  const excludedFilter = includeExcluded || spendableOnly ? sql`` : sql`AND NOT t.is_excluded`;
+  const spendableFilter = spendableOnly
+    ? sql`AND NOT t.is_excluded
+          AND NOT t.is_internal_transfer
+          AND (t.category_id IS NULL OR t.category_id NOT IN ${OWN_ACCOUNT_CATEGORY_IDS})`
+    : sql``;
   const hourFilter = hourAutoOnly ? sql`AND t.category_source = 'hourly'` : sql``;
   const uncatFilter = uncategorizedOnly ? sql`AND t.category_id IS NULL` : sql``;
   const catFilter = categoryId && !uncategorizedOnly
@@ -191,6 +155,7 @@ async function fetchTxs(sql, f = {}) {
       ${accountFilter}
       ${monthFilter}
       ${excludedFilter}
+      ${spendableFilter}
       ${hourFilter}
       ${uncatFilter}
       ${catFilter}
@@ -220,6 +185,7 @@ export default async function handler(req, res) {
     const categoryId = typeof q.category_id === 'string' && q.category_id ? q.category_id : null;
     const flow = q.flow === 'ingresos' || q.flow === 'gastos' ? q.flow : null;
     const textQ = typeof q.q === 'string' ? q.q : (typeof q.search === 'string' ? q.search : '');
+    const spendableOnly = q.spendable_only === '1' || q.spendable === '1';
 
     const [accounts, categories, rules, imports] = await Promise.all([
       sql`SELECT id, nombre, tipo, moneda_default, activo, orden FROM accounts WHERE activo = true ORDER BY orden, id`,
@@ -250,6 +216,7 @@ export default async function handler(req, res) {
       categoryId,
       flow,
       q: textQ,
+      spendableOnly,
     });
     return res.status(200).json({ accounts, categories, rules, imports, transactions });
   }

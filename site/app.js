@@ -1347,7 +1347,11 @@ async function loadCatDetailTxs(row) {
   if (gastosCatTxCache.has(key)) return gastosCatTxCache.get(key);
   const account_id = $('#gResCuenta')?.value || '';
   const month = $('#gResMes')?.value || '';
-  const qs = new URLSearchParams({ view: 'movimientos', include_excluded: '0' });
+  const qs = new URLSearchParams({
+    view: 'movimientos',
+    include_excluded: '0',
+    spendable_only: '1',
+  });
   if (account_id) qs.set('account_id', account_id);
   if (month) qs.set('month', month);
   if (!row.category_id) qs.set('uncategorized', '1');
@@ -1357,7 +1361,10 @@ async function loadCatDetailTxs(row) {
   if (!r.ok) return [];
   const data = await r.json();
   const cur = row.currency || '';
-  const txs = (data.transactions || []).filter((t) => !cur || t.currency === cur);
+  const txs = (data.transactions || []).filter((t) =>
+    (!cur || t.currency === cur)
+    && !t.is_excluded
+    && !t.is_internal_transfer);
   gastosCatTxCache.set(key, txs);
   return txs;
 }
